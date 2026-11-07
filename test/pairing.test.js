@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { createPairing, pairSocketOptions } from '../src/pairing.js';
+import { createPairing, pairSocketOptions, hasLinkedIdentity } from '../src/pairing.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(t, extra = {}) {
   const sockets=[], states=[], rendered=[];let cleared=0,saved=0;
@@ -16,10 +16,10 @@ test('QR material only goes to renderer; status has no secrets; no message liste
   const f=fixture(t);await tick();f.sockets[0].ev.emit('connection.update',{qr:'mock-secret-not-a-real-qr'});await tick();assert.equal(f.rendered.length,1);assert.equal(f.states.at(-1).state,'waiting_scan');assert.ok(!JSON.stringify(f.states).includes('mock-secret'));assert.deepEqual(f.sockets[0].ev.eventNames().sort(),['connection.update','creds.update']);
 });
 test('successful pairing saves auth then closes and removes QR',async t=>{
-  const f=fixture(t);await tick();f.auth.creds.registered=true;f.sockets[0].ev.emit('creds.update',{});f.sockets[0].ev.emit('connection.update',{connection:'open'});assert.equal(await f.pairing.done,'paired');assert.equal(f.saved(),1);assert.equal(f.cleared(),1);
+  const f=fixture(t);await tick();f.auth.creds.me={id:'fixture-identity'};f.sockets[0].ev.emit('creds.update',{});f.sockets[0].ev.emit('connection.update',{connection:'open'});assert.equal(await f.pairing.done,'paired');assert.equal(f.saved(),1);assert.equal(f.cleared(),1);
 });
 test('only one required post-scan restart permitted, no reconnect loop',async t=>{
-  const f=fixture(t);await tick();f.auth.creds.registered=true;
+  const f=fixture(t);await tick();f.auth.creds.me={id:'fixture-identity'};
   const close={connection:'close',lastDisconnect:{error:{output:{statusCode:515}}}};
   f.sockets[0].ev.emit('connection.update',close);await tick();assert.equal(f.sockets.length,2);
   f.sockets[1].ev.emit('connection.update',close);assert.equal(await f.pairing.done,'connection_failed');assert.equal(f.sockets.length,2);
@@ -40,4 +40,20 @@ test('pair CLI refuses missing explicit approval before importing WhatsApp or cr
 });
 test('pair CLI refuses bot-enabled state',async()=>{
   const {spawnSync}=await import('node:child_process');const child=spawnSync(process.execPath,['src/pair-cli.js','--owner-approved'],{env:{PATH:process.env.PATH,BOT_ENABLED:'true'},encoding:'utf8'});assert.equal(child.status,1);assert.equal(child.stdout,'');assert.equal(child.stderr,'');
+});
+
+test('QR identity is valid even when registered remains false; flag alone is insufficient',()=>{
+  assert.equal(hasLinkedIdentity({registered:false,me:{id:'fixture-identity'}}),true);
+  assert.equal(hasLinkedIdentity({registered:true}),false);
+  assert.equal(hasLinkedIdentity({me:{}}),false);
+});
+test('open without linked identity fails safely, regardless of registered flag',async t=>{
+  const f=fixture(t);await tick();f.auth.creds.registered=true;
+  f.sockets[0].ev.emit('connection.update',{connection:'open'});
+  assert.equal(await f.pairing.done,'auth_identity_missing');
+});
+test('saved QR session with registered false verifies without requiring fresh scan',async t=>{
+  const auth={creds:{registered:false,me:{id:'fixture-identity'}}};
+  const f=fixture(t,{auth});await tick();f.sockets[0].ev.emit('connection.update',{connection:'open'});
+  assert.equal(await f.pairing.done,'paired');assert.equal(f.rendered.length,0);assert.equal(f.sockets.length,1);
 });

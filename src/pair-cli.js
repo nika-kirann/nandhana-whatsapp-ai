@@ -1,7 +1,7 @@
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, chmod, writeFile, rename, rm, lstat, open } from 'node:fs/promises';
-import { createPairing } from './pairing.js';
+import { createPairing, hasLinkedIdentity } from './pairing.js';
 
 // QR/auth material never goes to stdout/stderr, logs, chat, or a public URL.
 export async function runPairCLI() {
@@ -45,7 +45,8 @@ export async function runPairCLI() {
       import('@whiskeysockets/baileys'), import('pino'), import('qrcode')
     ]);
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
-    if (state.creds.registered) { await status('already_registered_not_verified'); return; }
+    // Preserve existing session and verify it using the same auth-only socket.
+    if (hasLinkedIdentity(state.creds)) await status('verifying_existing');
     const pairing = createPairing({ makeSocket: makeWASocket, auth: state, saveCreds,
       logger: pino({ level: 'silent' }), restartCode: DisconnectReason.restartRequired,
       clearQR, status, renderQR: async value => atomic('qr.png', await QRCode.toBuffer(value, { type: 'png', width: 600, margin: 4 })) });

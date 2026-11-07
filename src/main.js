@@ -1,4 +1,5 @@
 import { readConfig } from './config.js';
+import { hasLinkedIdentity } from './pairing.js';
 import { createDownloader } from './pinterest.js';
 import { createTransport } from './network.js';
 import { createHandler } from './handler.js';
@@ -22,7 +23,7 @@ export async function main() {
   await mkdir(authDir, { recursive: true, mode: 0o700 });
   await chmod(authDir, 0o700);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
-  if (!state.creds.registered) throw new Error('No linked session. Linking is a separate supervised setup step; no QR or pairing code is emitted.');
+  if (!hasLinkedIdentity(state.creds)) throw new Error('No linked session. Linking is a separate supervised setup step; no QR or pairing code is emitted.');
   // This utility store is suitable for a small prototype, not multi-instance production.
   const downloader = createDownloader(config, createTransport({ timeout: config.timeout }));
   let socket, shuttingDown = false;

@@ -131,7 +131,7 @@ have their own retention policies; reset/stop do not delete their records.
 
 ## Verification — distinguish fixtures from live access
 
-Verified with Node 22.23.4: **60/60 offline tests passed**, syntax checks passed for
+Verified with Node 22.23.4: **63/63 offline tests passed**, syntax checks passed for
 **11 JavaScript files**, clean locked installation with scripts disabled succeeded,
 and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
 Audit results are not a security guarantee.
@@ -175,8 +175,9 @@ The process is capped at 180 seconds and six QR emissions, with no network-failu
 retries. Exactly one `restartRequired` post-scan reconnect is permitted by the documented
 Baileys auth flow. State `paired` means a socket opened with registered credentials and
 credential saves completed, after which the auth socket is closed without logout.
-`already_registered_not_verified` only means local registration was found, **not** that
-a live connection was verified. Do not start multiple pairing processes concurrently.
+An existing QR session is verified with an auth-only socket, not discarded or re-paired.
+Baileys 6.7 QR sessions are identified by an in-memory `creds.me` identity; its `registered`
+flag is not a reliable QR-session guard. No identity values are displayed or logged. Do not start multiple pairing processes concurrently.
 Generic failure/expiry clears the displayed QR; a new attempt needs owner approval.
 
 No inbox, chat, history, download or user-message send handlers are installed. Initial
@@ -195,3 +196,13 @@ Documented method: https://baileys.wiki/authentication/qr-code and
 https://github.com/WhiskeySockets/baileys.wiki-site/blob/main/docs/socket/connecting.md .
 Public Grok Bot examples were researched, but no third-party hosted WhatsApp connector,
 subscription or token-sharing service was installed or used.
+
+### QR lifecycle regression fix
+
+Initial owner-supervised attempts reported reason 515 and then `auth_not_registered`.
+This was an application guard bug, not evidence of a network/site block: the pinned
+Baileys QR-success implementation updates `creds.me`/account data but does not set the
+`registered` flag. The socket itself chooses login using `creds.me`; 515 is its documented
+post-scan restart request. The workflow now permits exactly one such restart with a linked
+identity and verifies existing saved QR sessions without deleting or resetting auth data.
+Only actual socket-open plus successful credential persistence produces `paired` status.

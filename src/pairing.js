@@ -1,3 +1,5 @@
+// Baileys 6.7 QR login uses creds.me (registered is not set by QR pairing).
+export const hasLinkedIdentity = creds => typeof creds?.me?.id === 'string' && creds.me.id.length > 0;
 // Auth-only state machine. No chat/inbox/download/send handlers are registered.
 export function pairSocketOptions(auth, logger) {
   return { auth, logger, printQRInTerminal: false, markOnlineOnConnect: false,
@@ -48,12 +50,12 @@ export function createPairing({ makeSocket, auth, saveCreds, renderQR, clearQR,
           await status('waiting_scan');
         }
         if (update.connection === 'open') {
-          if (!auth.creds.registered) { await finish('auth_not_registered'); return; }
+          if (!hasLinkedIdentity(auth.creds)) { await finish('auth_identity_missing'); return; }
           await finish('paired');
         }
         if (update.connection === 'close') {
           const code = update.lastDisconnect?.error?.output?.statusCode;
-          if (code === restartCode && auth.creds.registered && restarts === 0) {
+          if (code === restartCode && hasLinkedIdentity(auth.creds) && restarts === 0) {
             restarts++;
             await saves;
             await clearQR(); await status('verifying');

@@ -57,3 +57,14 @@ test('saved QR session with registered false verifies without requiring fresh sc
   const f=fixture(t,{auth});await tick();f.sockets[0].ev.emit('connection.update',{connection:'open'});
   assert.equal(await f.pairing.done,'paired');assert.equal(f.rendered.length,0);assert.equal(f.sockets.length,1);
 });
+
+test('pairing respects external AUTH_DIR without resetting default auth',async()=>{
+  const {resolvePairAuthDir}=await import('../src/pair-cli.js');
+  assert.equal(resolvePairAuthDir({AUTH_DIR:'/private/new-session'},'/project'),'/private/new-session');
+  assert.equal(resolvePairAuthDir({},'/project'),'/project/auth');
+});
+test('pairing refuses custom auth directory inside tracked project paths',async()=>{
+  const {resolvePairAuthDir}=await import('../src/pair-cli.js');
+  assert.throws(()=>resolvePairAuthDir({AUTH_DIR:'src'},'/project'));
+  assert.throws(()=>resolvePairAuthDir({AUTH_DIR:'.'},'/project'));
+});

@@ -131,7 +131,7 @@ have their own retention policies; reset/stop do not delete their records.
 
 ## Verification — distinguish fixtures from live access
 
-Verified with Node 22.23.4: **63/63 offline tests passed**, syntax checks passed for
+Verified with Node 22.23.4: **65/65 offline tests passed**, syntax checks passed for
 **11 JavaScript files**, clean locked installation with scripts disabled succeeded,
 and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
 Audit results are not a security guarantee.
@@ -206,3 +206,9 @@ Baileys QR-success implementation updates `creds.me`/account data but does not s
 post-scan restart request. The workflow now permits exactly one such restart with a linked
 identity and verifies existing saved QR sessions without deleting or resetting auth data.
 Only actual socket-open plus successful credential persistence produces `paired` status.
+
+Pairing honors the same `AUTH_DIR` setting as the bot. A fresh owner-authorized session
+can use a newly created private directory outside the repository while retaining old
+session directories unchanged. Store this path only in ignored local `.env`, keep
+`BOT_ENABLED=false`, and never run multiple attempts concurrently. Changing session
+paths does not revoke an old linked device; review Linked devices on the phone separately.

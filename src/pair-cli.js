@@ -3,6 +3,14 @@ import { fileURLToPath } from 'node:url';
 import { mkdir, chmod, writeFile, rename, rm, lstat, open } from 'node:fs/promises';
 import { createPairing, hasLinkedIdentity } from './pairing.js';
 
+export function resolvePairAuthDir(env = process.env, cwd = process.cwd()) {
+  const root = resolve(cwd);
+  const path = resolve(root, env.AUTH_DIR || 'auth');
+  if (path !== join(root, 'auth') && (path === root || path.startsWith(root + '/'))) {
+    throw new Error('Custom AUTH_DIR must be outside the project');
+  }
+  return path;
+}
 // QR/auth material never goes to stdout/stderr, logs, chat, or a public URL.
 export async function runPairCLI() {
   if (!process.argv.includes('--owner-approved') || process.env.BOT_ENABLED === 'true') {
@@ -10,7 +18,7 @@ export async function runPairCLI() {
   }
   process.umask(0o077);
   for (const name of ['log','info','warn','error','debug','trace','dir']) console[name] = () => {};
-  const authDir = resolve('auth');
+  const authDir = resolvePairAuthDir();
   const viewDir = resolve('.pairing');
   for (const dir of [authDir, viewDir]) {
     try { if ((await lstat(dir)).isSymbolicLink()) throw new Error('Unsafe directory'); }

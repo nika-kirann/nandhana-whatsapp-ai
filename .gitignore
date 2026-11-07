@@ -6,3 +6,4 @@ auth/
 sessions/
 *.log
 coverage/
+.pairing/

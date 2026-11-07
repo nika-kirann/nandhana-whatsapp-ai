@@ -117,7 +117,7 @@ test('same-chat serialization, shutdown suppression and cleanup', async t => {
   const f=botFixture(t,{downloader:{download:async()=>{started();await gate;return {type:'video',path:'mock',cleanup:async()=>cleaned++};}}});await f.start();const pending=f.bot.handle(message(pin));await begin;const close=f.bot.close();release();await Promise.all([pending,close]);assert.equal(f.mediaSends.length,0);assert.equal(cleaned,1);
 });
 test('fixed bilingual responses have no AI identity or chat capability', () => { assert.match(copy('Nandhana','help'),/Pinterest/);assert.match(copy('Nandhana','help'),/[\u0d00-\u0d7f]/); });
-test('disabled entrypoint creates no auth and needs no provider', async () => { const { execFileSync }=await import('node:child_process');const { existsSync }=await import('node:fs');assert.match(execFileSync(process.execPath,['src/main.js'],{env:{PATH:process.env.PATH,BOT_ENABLED:'false'},encoding:'utf8'}),/Bot disabled/);assert.equal(existsSync('auth'),false); });
+test('disabled entrypoint creates no auth and needs no provider', async () => { const { execFileSync }=await import('node:child_process');const { existsSync }=await import('node:fs');const hadAuth=existsSync('auth');assert.match(execFileSync(process.execPath,['src/main.js'],{env:{PATH:process.env.PATH,BOT_ENABLED:'false'},encoding:'utf8'}),/Bot disabled/);assert.equal(existsSync('auth'),hadAuth); });
 
 test('successful video passes video attachment type and cleanup', async t => {
   let cleaned=0;const f=botFixture(t,{downloader:{download:async()=>({type:'video',path:'mock',cleanup:async()=>cleaned++})}});await f.start();await f.bot.handle(message(pin));assert.deepEqual(f.mediaSends,['video']);assert.equal(cleaned,1);

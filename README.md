@@ -67,9 +67,8 @@ Package installation contacts registry/Git hosts; tests/syntax checks are offlin
 ## Future activation — manual and owner-approved only
 
 1. Review terms, download rights, privacy, host/network access and the limitations below.
-2. Complete a **separate supervised WhatsApp linking setup**. This repository intentionally
-   ships no pairing command and emits no QR/pairing codes. Unregistered session startup
-   is refused. Keep registered credentials in ignored `./auth` with owner-only permissions;
+2. Complete the **supervised QR-only pairing command** described below. The main bot
+   still refuses unregistered-session startup. Keep registered credentials in ignored `./auth` with owner-only permissions;
    custom `AUTH_DIR` must be outside this project. Never share session files or OTPs.
 3. Set local `.env`: `ALLOWED_CHATS` to exact direct-chat JIDs (`digits@s.whatsapp.net`
    or `digits@lid`). Empty permits nobody; activation requires at least one. No contacts
@@ -132,8 +131,8 @@ have their own retention policies; reset/stop do not delete their records.
 
 ## Verification — distinguish fixtures from live access
 
-Verified with Node 22.23.4: **50/50 offline tests passed**, syntax checks passed for
-**8 JavaScript files**, clean locked installation with scripts disabled succeeded,
+Verified with Node 22.23.4: **60/60 offline tests passed**, syntax checks passed for
+**11 JavaScript files**, clean locked installation with scripts disabled succeeded,
 and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
 Audit results are not a security guarantee.
 
@@ -148,7 +147,51 @@ Audit results are not a security guarantee.
   succeeded; image download, video bytes, shortlink resolution and WhatsApp sending remain
   verified by fixtures only, not live end-to-end. Live environment DNS must satisfy policy.
 
-No WhatsApp account linked, QR/pairing emitted, outgoing WhatsApp message, AI request,
-deployment, CI or paid resource was used. This is a conservative **parser/downloader
+During downloader implementation no WhatsApp account was linked, QR/pairing emitted,
+outgoing WhatsApp message, AI request, deployment, CI or paid resource used. The separate
+owner-approved auth-only pairing command below was added later; its current run status
+is recorded only in the private status file, not inferred from these offline checks. This is a conservative **parser/downloader
 prototype**, not a universal or production-tested downloader. There is no auto reconnect,
 SLA, malware scanner or production multi-process session backend.
+
+## Owner-supervised QR linking (auth only)
+
+This is separate from the downloader. Keep `BOT_ENABLED=false` (the command refuses
+`BOT_ENABLED=true`). With the owner present and explicitly approving linking, run:
+
+```sh
+npm run pair -- --owner-approved
+```
+
+It emits **nothing to the terminal**. QR material is only rendered into owner-private
+`.pairing/qr.png`; view `file:///absolute/path/to/project/.pairing/index.html` on this
+computer's private desktop. The page refreshes every two seconds for rotation/status.
+Do not paste the QR string, attach screenshots, expose the files on a public server,
+commit them, or share them. Open WhatsApp on your phone → Linked devices → Link a device
+and scan the desktop QR. `.pairing/status.json` contains only generic lifecycle state,
+PID and timestamp; it has no QR/account/session identifiers. Do not open `auth/` files.
+
+The process is capped at 180 seconds and six QR emissions, with no network-failure
+retries. Exactly one `restartRequired` post-scan reconnect is permitted by the documented
+Baileys auth flow. State `paired` means a socket opened with registered credentials and
+credential saves completed, after which the auth socket is closed without logout.
+`already_registered_not_verified` only means local registration was found, **not** that
+a live connection was verified. Do not start multiple pairing processes concurrently.
+Generic failure/expiry clears the displayed QR; a new attempt needs owner approval.
+
+No inbox, chat, history, download or user-message send handlers are installed. Initial
+queries, history requests, own-event emission and online presence are disabled, and all
+chat JIDs are ignored. WhatsApp may still deliver auth-required protocol/notifications
+internally; this app does not inspect, display, store or act on chat content. Auth uses
+ignored `auth/`, owner-only directory permissions and umask 077 for session files.
+The multi-file auth helper remains a prototype utility, not a production backend.
+
+`BOT_ENABLED` is not changed and no bot process is started by pairing. Linking does not
+authorize outgoing messages or downloader activation. You can revoke the linked device
+from the phone's Linked devices screen. A crash/SIGKILL can leave a stale QR image: never
+scan if status is not current or its PID is no longer running.
+
+Documented method: https://baileys.wiki/authentication/qr-code and
+https://github.com/WhiskeySockets/baileys.wiki-site/blob/main/docs/socket/connecting.md .
+Public Grok Bot examples were researched, but no third-party hosted WhatsApp connector,
+subscription or token-sharing service was installed or used.

@@ -50,6 +50,8 @@ promise of a reliable free always-on WhatsApp bot.
    select QR or Phone code, and explicitly press **Start one pairing attempt**.
    Phone-code mode accepts your number only in this protected HTTPS form, digits with
    country code (no `+`). It is not logged or saved in a separate phone input file.
+   After deploying an update, reopen a fresh `/owner` page before submitting; do not
+   refresh/resubmit an old `/owner/start` POST (its CSRF session may be stale).
    On your phone use WhatsApp → Linked devices → Link a device (scan QR), or
    **Link with phone number instead** (enter the privately displayed code).
 5. Watch authenticated status: `paired` requires actual socket-open and saved identity.
@@ -78,7 +80,8 @@ promise of a reliable free always-on WhatsApp bot.
 - Explicit POST actions require exact `Origin`, canonical Host, session-bound CSRF token,
   Secure/HttpOnly/SameSite=Strict cookie and bounded input. No GET starts a pairing attempt.
   Strong required Basic credentials use timing-safe hashed comparison. CSP, anti-frame,
-  HSTS and no-referrer headers apply. Koyeb's HTTPS proxy must be the only public entry:
+  HSTS applies; owner HTML uses `Referrer-Policy: same-origin` so normal form POSTs
+  retain their Origin. Other responses keep `no-referrer`. Koyeb's HTTPS proxy must be the only public entry:
   `X-Forwarded-Proto` is trusted solely for that proxy hop; never expose the plain Node
   port directly or allow untrusted clients to spoof proxy headers.
 - Authentication failures and owner traffic are bounded/rate-limited by direct peer,
@@ -235,8 +238,8 @@ have their own retention policies; reset/stop do not delete their records.
 
 ## Verification — distinguish fixtures from live access
 
-Verified with Node 22.23.4: **91/91 offline tests passed**, syntax checks passed for
-**18 JavaScript files**, clean locked installation with scripts disabled succeeded,
+Verified with Node 22.23.4: **94/94 offline tests passed**, syntax checks passed for
+**19 JavaScript files**, clean locked installation with scripts disabled succeeded,
 and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
 Audit results are not a security guarantee.
 

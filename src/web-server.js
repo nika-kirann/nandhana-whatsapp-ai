@@ -1,9 +1,9 @@
 import http from 'node:http';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { validatePhone } from './private-phone.js';
+import { renderOwnerView } from './owner-view.js';
 const digest = value => createHash('sha256').update(value).digest();
 const equal = (a, b) => timingSafeEqual(digest(a), digest(b));
-const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function createOwnerServer(config, pairing, { now = Date.now } = {}) {
   const sessions = new Map(), clients = new Map(); let lastStart = -Infinity;
   const authDigest = digest(config.username + ':' + config.password);
@@ -46,13 +46,10 @@ export function createOwnerServer(config, pairing, { now = Date.now } = {}) {
         const snapshot = pairing.snapshot();
         const code = pairing.code();
         const qr = pairing.qr();
-        const material = qr ? '<img src="/owner/qr.png" width="350" height="350" alt="Private linking QR">' : code ? `<h2>${escape(code.slice(0,4)+'-'+code.slice(4))}</h2><p>Linked devices → Link a device → Link with phone number instead. Enter this private code on your phone.</p>` : '';
-        const controls = snapshot.pairingAllowed ? `<form method="post" action="/owner/start"><input type="hidden" name="csrf" value="${session.csrf}"><label>Method <select name="mode"><option value="qr">QR</option><option value="code">Phone code</option></select></label><label>Phone (code mode only; country code + digits)<input name="phone" type="tel" autocomplete="off" maxlength="15"></label><button>Start one pairing attempt</button></form><form method="post" action="/owner/stop"><input type="hidden" name="csrf" value="${session.csrf}"><button>Stop pairing</button></form>` : '<p>Downloader mode: pairing is disabled. Redeploy with BOT_ENABLED=false to pair.</p>';
         const nonce = randomBytes(18).toString('base64');
-        const expiryScript = snapshot.active ? `<script nonce="${nonce}">setTimeout(()=>document.getElementById('private-material')?.replaceChildren(),${Math.min(180000, pairing.remainingMs())});addEventListener('pagehide',()=>document.getElementById('private-material')?.replaceChildren());</script>` : '';
-        const stopForm = !snapshot.pairingAllowed ? `<form method="post" action="/owner/stop"><input type="hidden" name="csrf" value="${session.csrf}"><button>Clear pairing display</button></form>` : '';
-        const html = `<!doctype html><html><head><meta charset="utf-8">${snapshot.active ? '<meta http-equiv="refresh" content="3">' : ''}<title>Nandhana owner pairing</title></head><body><h1>Nandhana: owner-only linking</h1><p>Status: ${escape(snapshot.state)}</p><section id="private-material">${material}</section>${expiryScript}${controls}${stopForm}<p>Pairing does not activate the Pinterest downloader. Never share QR/code screenshots. Only public Pins are supported after separate activation.</p></body></html>`;
-        return reply(200, html, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': security['Content-Security-Policy'] + `; script-src 'nonce-${nonce}'` });
+        const html = renderOwnerView({ snapshot, csrf: session.csrf, nonce, qr: Boolean(qr), code, remainingMs: pairing.remainingMs() });
+        // Normal form POSTs need a non-null Origin; no-referrer suppresses it.
+        return reply(200, html, { 'Content-Type': 'text/html; charset=utf-8', 'Referrer-Policy': 'same-origin', 'Content-Security-Policy': security['Content-Security-Policy'] + `; script-src 'nonce-${nonce}'` });
       }
       if (req.method === 'GET' && req.url === '/owner/status') return reply(200, JSON.stringify(pairing.snapshot()), { 'Content-Type': 'application/json' });
       if (req.method === 'GET' && req.url === '/owner/qr.png') {

@@ -66,7 +66,7 @@ test('owner view has no-store, CSP, anti-frame, secure cookie and no auto pairin
   assert.equal(res.status, 200); assert.match(res.headers['cache-control'], /no-store/);
   assert.match(res.headers['content-security-policy'], /frame-ancestors 'none'/);
   assert.equal(res.headers['cross-origin-resource-policy'], 'same-origin');
-  assert.equal(res.headers['x-frame-options'], 'DENY'); assert.equal(res.headers['referrer-policy'], 'no-referrer');
+  assert.equal(res.headers['x-frame-options'], 'DENY'); assert.equal(res.headers['referrer-policy'], 'same-origin');
   assert.match(res.headers['set-cookie'][0], /HttpOnly; Secure; SameSite=Strict/); assert.equal(h.starts, 0);
 });
 test('HTTPS proxy, canonical host and cross-site owner reads enforced', async t => {
@@ -82,7 +82,7 @@ test('invalid owner authentication is throttled without forwarded-IP trust', asy
 });
 test('pairing POST needs valid same-origin CSRF session and form content type', async t => {
   const h = harness(); const api = await setup(t, h.manager); const s = await api.session();
-  for (const headers of [{ origin: 'https://evil.example' }, { origin: '' }, { cookie: '' }, { 'content-type': 'text/plain' }]) assert.equal((await api.post('/owner/start', { mode: 'qr' }, { session: s, headers })).status, 403);
+  for (const headers of [{ origin: 'https://evil.example' }, { origin: 'null' }, { origin: '' }, { cookie: '' }, { 'content-type': 'text/plain' }]) assert.equal((await api.post('/owner/start', { mode: 'qr' }, { session: s, headers })).status, 403);
   assert.equal((await api.post('/owner/start', { mode: 'qr', csrf: 'bad' }, { session: s })).status, 403);
   assert.equal(h.starts, 0);
 });
@@ -186,4 +186,38 @@ test('disabled web entrypoint serves health without auth files or WhatsApp start
   assert.equal(response,200); assert.equal(privateError,'');
   await assert.rejects(stat(join(dir,'auth')), { code:'ENOENT' });
   child.kill('SIGTERM'); const [code]=await once(child,'exit'); assert.equal(code,0);
+});
+
+test('owner HTML form submits exact-origin CSRF-protected fields to mock pairing', async t => {
+  const h = harness(); const api = await setup(t, h.manager);
+  const page = await api.request('/owner');
+  assert.equal(page.headers['referrer-policy'], 'same-origin');
+  const form = page.body.match(/<form method="post" action="\/owner\/start">([\s\S]*?)<\/form>/)[1];
+  assert.equal((form.match(/name="csrf"/g) || []).length, 1);
+  const csrf = form.match(/name="csrf" value="([a-f0-9]+)"/)[1];
+  assert.match(form, /<option value="qr">/);
+  const result = await api.request('/owner/start', {
+    method: 'POST', headers: { cookie: page.headers['set-cookie'][0].split(';')[0], origin: config.origin, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ csrf, mode: 'qr', phone: '' }).toString()
+  });
+  assert.equal(result.status, 303); assert.equal(result.headers.location, '/owner');
+  assert.equal(h.starts, 1); assert.equal(h.callbacks.mode, 'qr'); await h.manager.stop();
+});
+test('non-HTML routes and errors retain no-referrer policy', async t => {
+  const h = harness(); const api = await setup(t, h.manager);
+  for (const route of ['/', '/healthz', '/owner/status', '/owner/qr.png', '/not-found']) {
+    assert.equal((await api.request(route)).headers['referrer-policy'], 'no-referrer');
+  }
+  assert.equal((await api.request('/owner', { auth: false })).headers['referrer-policy'], 'no-referrer');
+});
+
+test('minimal owner screen is responsive, accessible and self-contained', async t => {
+  const h = harness(); const api = await setup(t, h.manager); const page = await api.request('/owner');
+  assert.match(page.body, /name="viewport"/); assert.match(page.body, /<html lang="en">/);
+  assert.match(page.body, /<label for="method">/); assert.match(page.body, /id="method" name="mode"/);
+  assert.match(page.body, /<label for="phone">/); assert.match(page.body, /aria-describedby="phone-hint"/);
+  assert.match(page.body, /:focus-visible/); assert.match(page.body, /prefers-reduced-motion/);
+  assert.match(page.body, /Nandhana/); assert.match(page.body, /Pinterest downloader/);
+  assert.doesNotMatch(page.body, /<script[^>]+src=|<link[^>]+href=|@import|https?:\/\//);
+  assert.doesNotMatch(page.body, /class="code"|class="qr"/);
 });

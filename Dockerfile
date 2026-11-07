@@ -5,7 +5,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && mkdir -p /data/auth && chown -R node:node /app /data
 COPY --chown=node:node src ./src
+COPY --chown=node:node migrations ./migrations
+COPY --chown=node:node scripts ./scripts
+RUN npm run build
 USER node
-ENV NODE_ENV=production PORT=8000 BOT_ENABLED=false AUTH_DIR=/data/auth
+ENV NODE_ENV=production PORT=8000 BOT_ENABLED=false AUTH_STORE=file AUTH_DIR=/data/auth
 EXPOSE 8000
 CMD ["node", "src/web-main.js"]

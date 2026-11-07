@@ -78,5 +78,5 @@ export function createPairing({ makeSocket, auth, saveCreds, renderQR, clearQR,
     });
   }
   void status('connecting').then(start).catch(() => void finish('pairing_failed'));
-  return { done, stop: () => finish('stopped') };
+  return { done, stop: () => finish('stopped'), failStorage: () => finish('storage_failed') };
 }

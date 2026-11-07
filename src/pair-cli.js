@@ -2,17 +2,12 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, chmod, writeFile, rename, rm, lstat, open } from 'node:fs/promises';
 import { createPairing, hasLinkedIdentity } from './pairing.js';
-import { acquireAuthLock } from './auth-lock.js';
+import { resolvePairAuthDir } from './auth-path.js';
+import { readAuthConfig } from './auth-config.js';
+import { openAuthStore } from './auth-store.js';
 import { readPrivatePhone } from './private-phone.js';
 
-export function resolvePairAuthDir(env = process.env, cwd = process.cwd()) {
-  const root = resolve(cwd);
-  const path = resolve(root, env.AUTH_DIR || 'auth');
-  if (path !== join(root, 'auth') && (path === root || path.startsWith(root + '/'))) {
-    throw new Error('Custom AUTH_DIR must be outside the project');
-  }
-  return path;
-}
+export { resolvePairAuthDir } from './auth-path.js';
 // QR/auth material never goes to stdout/stderr, logs, chat, or a public URL.
 export async function runPairCLI() {
   if (!process.argv.includes('--owner-approved') || process.env.BOT_ENABLED === 'true') {
@@ -20,9 +15,9 @@ export async function runPairCLI() {
   }
   process.umask(0o077);
   for (const name of ['log','info','warn','error','debug','trace','dir']) console[name] = () => {};
-  const authDir = resolvePairAuthDir();
+  const authConfig = readAuthConfig();
   const viewDir = resolve('.pairing');
-  for (const dir of [authDir, viewDir]) {
+  for (const dir of authConfig.store === 'file' ? [resolvePairAuthDir(),viewDir] : [viewDir]) {
     try { if ((await lstat(dir)).isSymbolicLink()) throw new Error('Unsafe directory'); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     await mkdir(dir, { recursive: true, mode: 0o700 }); await chmod(dir, 0o700);
@@ -52,21 +47,22 @@ export async function runPairCLI() {
   try { lock = await open(lockPath, 'wx', 0o600); } catch { process.exitCode = 1; return; }
   await lock.writeFile(String(process.pid));
   await clearQR(); await status('preparing');
-  let releaseAuth;
+  let storage, pairing, lost = false;
   try {
-    releaseAuth = await acquireAuthLock(authDir);
     let phoneNumber;
     if (codeMode) {
       try { phoneNumber = await readPrivatePhone(join(viewDir, 'phone.txt')); }
       catch { await status('phone_input_required'); process.exitCode = 1; return; }
     }
-    const [{ default: makeWASocket, useMultiFileAuthState, DisconnectReason }, { default: pino }, { default: QRCode }] = await Promise.all([
+    const [{ default: makeWASocket, DisconnectReason }, { default: pino }, { default: QRCode }] = await Promise.all([
       import('@whiskeysockets/baileys'), import('pino'), import('qrcode')
     ]);
-    const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    storage = await openAuthStore({ onLost: () => { lost = true; void pairing?.failStorage(); } });
+    const { state, saveCreds } = storage;
+    if (lost) throw new Error('AUTH_SESSION_LOST');
     // Preserve existing session and verify it using the same auth-only socket.
     if (hasLinkedIdentity(state.creds)) await status('verifying_existing');
-    const pairing = createPairing({ makeSocket: makeWASocket, auth: state, saveCreds,
+    pairing = createPairing({ makeSocket: options => { storage.assertActive(); return makeWASocket(options); }, auth: state, saveCreds,
       logger: pino({ level: 'silent' }), restartCode: DisconnectReason.restartRequired,
       clearQR, status,
       requestCode: codeMode ? async socket => socket.requestPairingCode(phoneNumber) : undefined,
@@ -81,7 +77,7 @@ export async function runPairCLI() {
     if (result !== 'paired') process.exitCode = 1;
   } catch {
     await clearQR(); await status('startup_failed'); process.exitCode = 1;
-  } finally { await releaseAuth?.(); await lock.close(); await rm(lockPath, { force: true }); }
+  } finally { await storage?.close(); await lock.close(); await rm(lockPath, { force: true }); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   runPairCLI().catch(() => { process.exitCode = 1; });

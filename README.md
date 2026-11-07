@@ -23,9 +23,9 @@ promise of a reliable free always-on WhatsApp bot.
   reschedule/redeploy may lose the linked session; Koyeb says local data can disappear
   at any moment, including automatic upgrades at least weekly. Re-pairing may be needed.
 - Changing environment settings (including later enabling the downloader) can redeploy
-  and lose auth on Free. **This implementation does not solve free-tier durable sessions
-  or guarantee pairing survives the transition to downloader mode.** A separately
-  reviewed durable auth backend/hosting arrangement is needed for reliable operation.
+  and lose auth on Free. **File mode does not guarantee durable sessions or survival of the transition to
+  downloader mode.** The optional encrypted Postgres adapter below can retain auth
+  externally when configured; hosting uptime and database quotas still need review.
   No paid tier, external secret upload, or additional resource has been selected.
 - Single replica/process only. Free's low CPU/memory and cold starts have not been load
   tested with this app; Koyeb itself says Free is not for production.
@@ -62,9 +62,9 @@ promise of a reliable free always-on WhatsApp bot.
    decision to activate. For later downloader operation use the **same** auth directory,
    explicit `BOT_ENABLED=true` and `ALLOWED_CHATS`; senders still need `/start` consent.
    `npm run web` serves health/owner status in either mode, but refuses pairing actions
-   in downloader mode. Do not run `npm start` or `npm run pair` beside it.
-   On Free the activation redeploy may lose auth (see warning above), so it is not a
-   guaranteed working activation path. No in-browser control silently enables sending.
+   in downloader mode. Do not run `npm run bot` or `npm run pair` beside it.
+   On Free the activation redeploy may lose file-mode auth (see warning above); use
+   the optional Postgres adapter for externally persisted auth. No in-browser control silently enables sending.
 
 ### Web privacy and operational boundaries
 
@@ -110,6 +110,119 @@ Official Koyeb sources (checked for this change):
 [PORT/routes](https://www.koyeb.com/docs/build-and-deploy/exposing-your-service),
 [health checks](https://www.koyeb.com/docs/run-and-scale/health-checks),
 [Git deployment](https://www.koyeb.com/docs/build-and-deploy/deploy-with-git).
+
+## Optional encrypted Postgres auth storage (Neon / Lakebase Postgres)
+
+**Code is ready; no production database was connected, provisioned or migrated here.**
+You supply your own secrets in Koyeb. The default is still `AUTH_STORE=file`. Setting
+only a database URL does not change the backend. No Neon CLI login/init/deploy is needed
+for this adapter, and it does not enable Neon Auth, Functions, Data API or AI Gateway.
+
+### Owner setup
+
+1. If a database URL/password was previously pasted into chat, **rotate that password
+   first** in your provider account. Do not reuse the disclosed credential.
+2. Privately configure these variables (never commit the values or send them in chat):
+
+   | Variable | Value / purpose |
+   | --- | --- |
+   | `AUTH_STORE` | `postgres` (opt-in; `file` preserves the old backend) |
+   | `DATABASE_URL_POOLED` | Console-provided pooled Postgres URL for app queries; `DATABASE_URL` is an alternative. Pooled wins when both are set. Direct URLs also work for runtime queries. |
+   | `DATABASE_URL_UNPOOLED` | Direct/non-pooler URL **only for the explicit migration command**. It is not used for normal app traffic. |
+   | `AUTH_ENCRYPTION_KEY` | Exactly 64 hexadecimal characters, encoding 32 cryptographically random bytes; keep the same key across every redeploy. Store separately from the database in deployment secrets, not in Git or committed env files. |
+   | `SESSION_ID` | Stable nonsecret name, e.g. `nandhana-primary`; 1–64 letters/digits/underscore/hyphen. Every process for the same WhatsApp session must use the same ID. |
+   | `BOT_ENABLED` | Keep `false` for owner-supervised linking; no automatic activation. |
+
+   Keep existing `PUBLIC_ORIGIN`, `WEB_OWNER_USERNAME`, secret `WEB_OWNER_PASSWORD`,
+   `PORT` and HTTPS setup. `AUTH_DIR` is ignored in Postgres mode. No local auth files are automatically imported. QR/view files are not uploaded;
+   any auth-protocol fields inside Baileys credentials are encrypted with those credentials.
+3. Generate the encryption key **privately on your own computer** (this command writes
+   an owner-only file, does not print the key, and refuses to overwrite an existing key):
+
+   ```sh
+   node -e 'const fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto");const dir=path.join(os.homedir(),".config","nandhana");fs.mkdirSync(dir,{recursive:true,mode:0o700});const fd=fs.openSync(path.join(dir,"auth-encryption-key.txt"),"wx",0o600);fs.writeFileSync(fd,crypto.randomBytes(32).toString("hex"));fs.closeSync(fd)'
+   ```
+
+   Privately transfer that file's contents into the deployment secret. Securely keep
+   an independent backup of the key; losing/changing it makes stored sessions unreadable.
+   Key rotation requires a separately reviewed re-encryption migration, not a new env value.
+4. With your secrets injected in a trusted owner environment, run **once, explicitly**:
+
+   ```sh
+   npm ci --ignore-scripts
+   npm run build
+   npm run db:migrate
+   ```
+
+   Migration `migrations/001_auth.sql` is versioned, transactional and idempotent. It
+   requires a direct URL and permission to create the three tables. The app never
+   creates/alters schema automatically. A missing schema, SQL/network error, wrong key,
+   corrupt ciphertext or missing credentials in an initialized session fails closed;
+   it does **not** fall back to file storage or silently generate replacement auth.
+   Runtime can use a lower-privilege role with SELECT/INSERT/UPDATE/DELETE on these tables.
+5. Deploy the implementation branch, keep **one replica**, use `npm start` (or `npm run web`;
+   Docker starts the same web entrypoint), and reopen `/owner`. An explicit pairing POST
+   acquires database ownership and stores new creds plus Signal keys. Pairing success
+   releases ownership; a later separately approved downloader startup uses the same DB,
+   key and `SESSION_ID`. `BOT_ENABLED=true` still requires `ALLOWED_CHATS` and sender `/start`.
+   Do not run `npm run bot` or `npm run pair` in parallel with the web/downloader socket.
+
+### Security, limits and migration boundaries
+
+- AES-256-GCM records have a random 96-bit IV, authentication tag, version 1 and AAD
+  bound to application/session/category/key ID. Credentials **and every Signal key
+  category** are encrypted. BufferJSON restores binary data; app-state sync keys are
+  reconstructed with the pinned Baileys protobuf helper. SQL is parameterized.
+- Runtime uses `pg` with max **2 connections**, 5-second connect/query/statement bounds,
+  idle eviction and TLS certificate verification enabled. It does not set
+  `rejectUnauthorized:false` or offer a production insecure-TLS switch. The driver's
+  URL `sslmode` is validated/removed before the explicit verifying TLS configuration
+  is applied. Custom TLS-file/host overrides are rejected. Use a provider certificate
+  trusted by Node; a custom CA requires separately reviewed trust configuration.
+- A 30-second database row lease, 5-second heartbeat, monotonic local deadline and
+  increasing fencing token coordinate CLI, web pairing and downloader across containers.
+  Transactions lock/check ownership before reads/writes and commit; stale owners cannot
+  overwrite a new owner's state or release its lease. Failure/expiry stops the socket
+  and blocks further operations. Send callbacks recheck ownership; messages already in
+  flight cannot be recalled or atomically fenced by an external WhatsApp server.
+- This uses transaction-scoped row locks, **not session advisory locks**, so runtime
+  queries support Neon's transaction pooler. Keep one replica: a lease is not a
+  multi-replica bot design. After crash, wait up to 30 seconds for lease expiry. Batch
+  operations cap at 1,000 keys and encrypted plaintext records at 1 MiB.
+- Disabled web startup only validates configuration and serves HTTP; **no DB/WhatsApp
+  connection or lease** is opened until an explicit pairing action. `/healthz` is web
+  liveness, not database/WhatsApp readiness. No retries or auto-reconnect on DB failure.
+- Existing auth directories/keys are preserved untouched; there is **no automatic file
+  import or deletion**. This change does not migrate an existing local linked identity.
+  For a new database session, explicitly pair again and review old devices on your phone.
+  A trustworthy file importer is deferred (Baileys filenames encode IDs lossily).
+- Database persistence removes dependence on Koyeb's ephemeral auth files only when
+  opted in/configured. It does not prevent Koyeb sleeping or keep WhatsApp online. Neon
+  Free compute/egress quotas still apply; lease heartbeats during active sockets keep
+  database compute active and can exhaust the free allowance. No free uptime SLA is promised.
+- Backups should include encrypted records and a separately secured key. GCM detects
+  ciphertext/record swaps, not malicious whole-database deletion or historical rollback.
+  Database credentials and deployment secrets must remain private; table metadata/lease
+  IDs are not encrypted. Never expose these tables through a browser-facing Data API.
+
+### What was tested
+
+`npm test` includes crypto/config, existing downloader/web/security regressions, and
+isolated **PGlite (PostgreSQL in WASM)** tests using the real `pg` wire-protocol driver.
+`npm run e2e` runs those database integration tests separately: process A writes synthetic
+creds/Signal keys, process B restores bytes/protobuf data; contenders, fencing, rollback,
+corruption, missing creds, wrong keys, lease renewal/loss and deletion are checked.
+Tests never consume your database URL, auth files or phone/account identities.
+The test-only loopback transport has no TLS; production has no such switch. PGlite's
+single-connection multiplexer is **not** proof of native multi-client locking, Neon pooler
+behavior, TLS handshakes, Koyeb deployment, or live WhatsApp integration. Native Postgres
+server installation was unavailable (OS repository HTTP 500/signature errors); it was
+not retried/bypassed. Live/native verification remains a separate owner step.
+
+Official references: [Neon connections](https://neon.com/docs/connect/connect-from-any-app),
+[pooling](https://neon.com/docs/connect/connection-pooling),
+[node-postgres TLS](https://node-postgres.com/features/ssl),
+[PGlite socket testing limits](https://pglite.dev/docs/pglite-socket).
 
 ## What it supports
 
@@ -162,7 +275,7 @@ npm ci --ignore-scripts
 cp .env.example .env
 npm test
 npm run check
-npm start
+npm run bot
 ```
 
 With `BOT_ENABLED=false`, startup prints `Bot disabled` and exits before importing the
@@ -238,8 +351,8 @@ have their own retention policies; reset/stop do not delete their records.
 
 ## Verification — distinguish fixtures from live access
 
-Verified with Node 22.23.4: **94/94 offline tests passed**, syntax checks passed for
-**19 JavaScript files**, clean locked installation with scripts disabled succeeded,
+Verified with Node 22.23.4: **114/114 offline tests passed**, syntax checks passed for
+**29 JavaScript files**, clean locked installation with scripts disabled succeeded,
 and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
 Audit results are not a security guarantee.
 

@@ -95,3 +95,8 @@ test('private phone reader rejects unsafe permissions, symlinks and malformed nu
     await writeFile(path,'x'.repeat(33));await assert.rejects(readPrivatePhone(path));
   }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('external auth lease failure closes pairing socket and clears material without retry',async t=>{
+ let ended=0;const f=fixture(t,{makeSocket:()=>({ev:new EventEmitter(),end:()=>ended++})});await tick();
+ await f.pairing.failStorage();assert.equal(await f.pairing.done,'storage_failed');assert.equal(ended,1);assert.equal(f.cleared(),1);
+});

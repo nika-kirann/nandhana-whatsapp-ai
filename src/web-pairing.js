@@ -38,23 +38,20 @@ export function createWebPairing({ run, enabled = true, now = Date.now, timeoutM
     async close() { closing = true; cancelled = true; clear(); clearTimeout(timer); await handle?.stop(); }
   };
 }
-export async function liveWebPairing({ authDir, mode, phone, status, renderQR, renderCode, clear }) {
-  const [{ mkdir, chmod }, { acquireAuthLock }, { createPairing }, { default: QRCode },
-    { default: makeSocket, useMultiFileAuthState, DisconnectReason }, { default: pino }] = await Promise.all([
-      import('node:fs/promises'), import('./auth-lock.js'), import('./pairing.js'), import('qrcode'),
+export async function liveWebPairing({ env = process.env, mode, phone, status, renderQR, renderCode, clear }) {
+  const [{ openAuthStore }, { createPairing }, { default: QRCode },
+    { default: makeSocket, DisconnectReason }, { default: pino }] = await Promise.all([
+      import('./auth-store.js'), import('./pairing.js'), import('qrcode'),
       import('@whiskeysockets/baileys'), import('pino')
     ]);
-  process.umask(0o077);
-  const { lstat } = await import('node:fs/promises');
-  try { if ((await lstat(authDir)).isSymbolicLink()) throw new Error('Unsafe auth directory'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  await mkdir(authDir, { recursive: true, mode: 0o700 }); await chmod(authDir, 0o700);
-  const release = await acquireAuthLock(authDir);
+  let pairing, lost = false;
+  const storage = await openAuthStore({ env, onLost: () => { lost = true; void pairing?.failStorage(); } });
   try {
-    const { state, saveCreds } = await useMultiFileAuthState(authDir);
-    const pairing = createPairing({ makeSocket, auth: state, saveCreds, status, clearQR: clear,
+    if (lost) throw new Error('AUTH_SESSION_LOST');
+    pairing = createPairing({ makeSocket: options => { storage.assertActive(); return makeSocket(options); }, auth: storage.state, saveCreds: storage.saveCreds, status, clearQR: clear,
       logger: pino({ level: 'silent' }), restartCode: DisconnectReason.restartRequired,
       renderQR: async value => renderQR(await QRCode.toBuffer(value, { type: 'png', width: 600, margin: 4 })),
       requestCode: mode === 'code' ? async socket => socket.requestPairingCode(phone) : undefined, renderCode });
-    return { stop: pairing.stop, done: pairing.done.finally(release) };
-  } catch (error) { await release(); throw error; }
+    return { stop: pairing.stop, done: pairing.done.finally(() => storage.close()) };
+  } catch (error) { await storage.close(); throw error; }
 }

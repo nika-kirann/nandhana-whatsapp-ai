@@ -4,7 +4,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { mkdtemp, mkdir, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readWebConfig } from '../src/web-config.js';
@@ -220,4 +220,21 @@ test('minimal owner screen is responsive, accessible and self-contained', async 
   assert.match(page.body, /Nandhana/); assert.match(page.body, /Pinterest downloader/);
   assert.doesNotMatch(page.body, /<script[^>]+src=|<link[^>]+href=|@import|https?:\/\//);
   assert.doesNotMatch(page.body, /class="code"|class="qr"/);
+});
+
+test('npm run start serves health in disabled Postgres mode without connecting or creating auth',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'nandhana-postgres-start-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const probe=http.createServer();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
+ const entry=fileURLToPath(new URL('../src/web-main.js',import.meta.url));
+ await writeFile(join(dir,'package.json'),JSON.stringify({name:'nandhana-isolated-start-test',version:'0.0.0',scripts:{start:`node --env-file-if-exists=.env ${entry}`}}));
+ const child=spawn('npm',['run','start'],{cwd:dir,detached:true,env:{PATH:process.env.PATH,...fixtureEnv,PORT:String(port),BOT_ENABLED:'false',AUTH_STORE:'postgres',SESSION_ID:'synthetic-start',AUTH_ENCRYPTION_KEY:'ab'.repeat(32),DATABASE_URL:'postgres://synthetic:fixture@127.0.0.1:1/synthetic?sslmode=require',AUTH_DIR:join(dir,'untouched-auth')},stdio:['ignore','pipe','pipe']});
+ let logs='';child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b);
+ t.after(()=>{try{process.kill(-child.pid,'SIGTERM')}catch{}});
+ let response;
+ for(let i=0;i<300;i++){
+  try{response=await new Promise((resolve,reject)=>{const req=http.get({hostname:'127.0.0.1',port,path:'/healthz'},res=>{res.resume();res.on('end',()=>resolve(res.statusCode))});req.on('error',reject)});break}catch{await new Promise(resolve=>setTimeout(resolve,10))}
+ }
+ assert.equal(response,200);assert.doesNotMatch(logs,/startup refused|fixture@|encryption/i);
+ await assert.rejects(stat(join(dir,'untouched-auth')),{code:'ENOENT'});
+ const exited=once(child,'exit');process.kill(-child.pid,'SIGTERM');await exited;
 });

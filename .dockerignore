@@ -4,3 +4,10 @@
 !src/
 !src/**
 !Dockerfile
+!migrations/
+!migrations/**
+!scripts/
+!scripts/check.js
+!scripts/build.js
+!scripts/migrate.js
+scripts/auth-db-test-worker.js

@@ -1,0 +1,33 @@
+{
+  "name": "nandhana-whatsapp-ai",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/web-main.js",
+    "test": "node --test",
+    "check": "node scripts/check.js",
+    "pair": "node --env-file-if-exists=.env src/pair-cli.js",
+    "web": "node --env-file-if-exists=.env src/web-main.js",
+    "bot": "node --env-file-if-exists=.env src/main.js",
+    "build": "npm run check && node scripts/build.js",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "e2e": "node --test test/postgres.test.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "cheerio": "1.0.0",
+    "ipaddr.js": "2.2.0",
+    "pg": "8.23.1",
+    "pino": "9.6.0",
+    "qrcode": "1.5.4"
+  },
+  "description": "Nandhana public Pinterest image/video downloader prototype",
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.15",
+    "@electric-sql/pglite-socket": "0.2.18"
+  }
+}

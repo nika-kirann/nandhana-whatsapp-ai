@@ -11,22 +11,16 @@ export function readConfig(env = process.env) {
   if (!/^[\p{L}\p{N} _-]{1,40}$/u.test(name)) throw new Error('Invalid BOT_NAME');
   const config = {
     enabled: env.BOT_ENABLED === 'true', name, allowedChats,
-    authDir: env.AUTH_DIR || './auth', baseUrl: env.AI_BASE_URL || '',
-    model: env.AI_MODEL || '', apiKey: env.AI_API_KEY || '',
+    authDir: env.AUTH_DIR || './auth',
     maxInput: integer(env, 'MAX_INPUT_CHARS', 2000, 1, 10000),
-    maxOutput: integer(env, 'MAX_OUTPUT_CHARS', 2000, 100, 5000),
-    historyTurns: integer(env, 'HISTORY_TURNS', 6, 1, 20),
     maxChats: integer(env, 'MAX_CHATS', 100, 1, 1000),
     chatTtl: integer(env, 'CHAT_TTL_MS', 1800000, 1000, 86400000),
     rateLimit: integer(env, 'RATE_LIMIT_PER_MINUTE', 6, 1, 60),
-    timeout: integer(env, 'AI_TIMEOUT_MS', 30000, 100, 120000),
+    timeout: integer(env, 'DOWNLOAD_TIMEOUT_MS', 20000, 100, 60000),
+    maxMedia: integer(env, 'MAX_MEDIA_BYTES', 12582912, 1024, 41943040),
   };
   if (config.enabled) {
     if (!allowedChats.size) throw new Error('Set ALLOWED_CHATS before activation');
-    if (!config.model.trim() || !config.apiKey.trim()) throw new Error('Set AI_MODEL and AI_API_KEY before activation');
-    let url;
-    try { url = new URL(config.baseUrl); } catch { throw new Error('Invalid AI_BASE_URL'); }
-    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('AI_BASE_URL must be a credential-free HTTPS base URL');
   }
   return config;
 }

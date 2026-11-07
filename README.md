@@ -1,40 +1,56 @@
-# Nandhana — WhatsApp AI chat prototype
+# Nandhana — public Pinterest downloader prototype
 
-An original, small Node.js app inspired by the *idea* of a linked-device WhatsApp bot.
-No reference repository source is copied or executed. **Nandhana** is the configurable
-default: a warm, playful feminine **AI persona, not a human**. General conversation,
-not a business/order support agent. The prompt follows English, Malayalam, and Manglish;
-actual fluency and safety depend on the model you select and need human evaluation.
-Every model reply is visibly prefixed `Nandhana (AI):` (or your configured name).
+Nandhana is now a fixed-response Malayalam/English WhatsApp **Pinterest downloader**, not
+an AI chatbot. No AI provider, model, API key, inference, persona prompt, or conversation
+history remains in the current source. The repository URL/name stays unchanged.
 
-## Safety and current state
+**Disabled by default. Not deployed, linked, or verified end-to-end with WhatsApp.**
 
-**Disabled by default. No WhatsApp account has been linked and no live AI/WhatsApp
-integration is verified.** No bulk/unsolicited-send interface, campaigns, groups,
-status replies, media download, tools, browsing or deployment configuration is included.
-The only send path replies to an incoming, allowlisted direct chat. A sender must use
-`/start` before their conversation is passed to the AI provider. First contact explains
-AI identity and data sharing. Restart or consent TTL expiry requires opt-in again.
+## What it supports
 
-Baileys is an **unofficial WhatsApp Web linked-device library**, not Meta's official
-WhatsApp Business Cloud API. It is not affiliated with WhatsApp. Protocol changes can
-break it, and use can violate WhatsApp terms or risk account restrictions. Review terms
-and customer consent requirements; consider the official platform for business deployment.
-Do not use this prototype with customers until reviewed and tested on an approved account.
+After `/start`, send exactly one HTTPS public Pin URL:
 
-## Prerequisites
+- `https://www.pinterest.com/pin/<numeric-id>/` (also `pinterest.com`).
+- `https://pin.it/<alphanumeric-code>` if up to three HTTP redirects stay on the permitted
+  page hosts and end at a supported numeric Pin URL. Other redirect patterns are refused.
+- One JPEG, PNG or WebP image from public JSON-LD image metadata (or explicitly marked
+  image Open Graph metadata); or one direct MP4 from `VideoObject.contentUrl`/Open Graph.
+- Media must be on exact hosts `i.pinimg.com` or `v1.pinimg.com`, match the file extension,
+  allowed response MIME type and a basic file signature. No external-site embed following.
+- Returns an image/video attachment with a fixed friendly caption, never scraped HTML/text.
 
-- Node.js **22 or newer** (tests also initially exercised on Node 20.19.2; use supported Node 22+).
-- npm and Git (Baileys' transitive `libsignal` dependency comes from GitHub).
-- A provider supporting HTTPS **OpenAI-compatible `/chat/completions`**, system messages,
-  `max_tokens`, and string `choices[0].message.content`. No model or provider is assumed.
-- A separately provisioned, owner-approved registered Baileys linked-device session.
-  **This build deliberately does not include a linking command**: it will not emit QR
-  or pairing codes, and refuses startup with unregistered credentials. Owner-supervised
-  linking must be implemented/reviewed as a separate step before the first live use.
-  Never send session files, OTPs or tokens in chat or commit them.
+**Not all Pins work.** Private/login-only/deleted/restricted Pins, boards, bulk downloads,
+regional Pinterest domains, slug-style Pin paths, GIF/SVG, HLS/DASH playlists, carousels,
+embedded external videos and ambiguous metadata are unsupported. The parser never
+intentionally substitutes an image for an identified video; HLS/video signals with no
+supported MP4 produce an error. Ambiguous image-only OG thumbnails are refused, and
+conservative page-wide video hints may reject otherwise downloadable images. Metadata
+cannot guarantee correct classification if Pinterest omits all media-type signals.
+There is no promise of original/best resolution or universal Pinterest coverage.
 
-## Offline setup (does not connect)
+## Approach and research
+
+SearchPlugins and installed connector status revealed no applicable Pinterest public
+media connector. No connector was installed. Implementation uses ordinary logged-out
+public HTML and standard metadata only, not the private web resource API.
+
+- `https://schema.org/VideoObject` documents `contentUrl` as actual media bytes.
+- `https://ogp.me/` documents `og:video`, `og:image`, and canonical metadata.
+- Open-source reference inspected for feasibility:
+  `https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/yt_dlp/extractor/pinterest.py`.
+  Its resource API approach was **not adopted**; no source copied or program executed.
+- A public logged-out Pin page exposed schema `VideoObject.contentUrl` directly.
+
+No cookies, login, authenticated/undocumented resource API, page-code execution, proxies,
+stealth browser, third-party downloader service, CAPTCHA solving, retry after blocks,
+or access-control circumvention is implemented. Download only media you own or have
+permission to save/reuse; public visibility does not grant copyright permission. Review
+Pinterest/WhatsApp terms and your applicable laws before activation.
+
+## Setup (offline tests; no WhatsApp activity)
+
+Requirements: Node.js 22+ (`.nvmrc` pins tested 22.23.4), npm, Git for the transitive
+Baileys `libsignal` Git dependency. No API credentials needed for Pinterest or AI.
 
 ```sh
 npm ci --ignore-scripts
@@ -44,106 +60,95 @@ npm run check
 npm start
 ```
 
-The last command prints `Bot disabled` and exits while `BOT_ENABLED=false`; it does not
-import the WhatsApp library, create auth files, call the provider or send anything.
-Dependency installation contacts package/Git hosts; tests and syntax checks do not.
-`--ignore-scripts` avoids dependency lifecycle scripts. Installation/import smoke checks
-are not a substitute for a live linked-device test.
+With `BOT_ENABLED=false`, startup prints `Bot disabled` and exits before importing the
+WhatsApp library, creating auth state, requesting Pinterest, or sending anything.
+Package installation contacts registry/Git hosts; tests/syntax checks are offline.
 
-## Future activation — intentionally manual
+## Future activation — manual and owner-approved only
 
-Do not activate as part of a code review. After owner-approved session setup and privacy review:
+1. Review terms, download rights, privacy, host/network access and the limitations below.
+2. Complete a **separate supervised WhatsApp linking setup**. This repository intentionally
+   ships no pairing command and emits no QR/pairing codes. Unregistered session startup
+   is refused. Keep registered credentials in ignored `./auth` with owner-only permissions;
+   custom `AUTH_DIR` must be outside this project. Never share session files or OTPs.
+3. Set local `.env`: `ALLOWED_CHATS` to exact direct-chat JIDs (`digits@s.whatsapp.net`
+   or `digits@lid`). Empty permits nobody; activation requires at least one. No contacts
+   are discovered and number/LID forms are not aliased automatically.
+4. Only after explicit approval, set `BOT_ENABLED=true` and start a single process.
+5. An allowlisted sender must `/start` to opt in, then send a permitted public Pin URL.
 
-1. Keep a registered session in ignored `./auth`, permissions restricted to its owner.
-   Custom `AUTH_DIR` must be outside the project. Do not use a shared or public machine.
-2. Configure `.env` locally using your provider's current documentation:
-   - `AI_BASE_URL`: HTTPS API version root (often ending `/v1`), without credentials/query/fragment.
-   - `AI_MODEL`: an actual available model identifier chosen by the owner; no default.
-   - `AI_API_KEY`: that provider's key; no default. Never log or commit it.
-   - `ALLOWED_CHATS`: exact direct-chat IDs, comma-separated (`digits@s.whatsapp.net`
-     or `digits@lid`). Empty means nobody; activation requires at least one.
-   - `BOT_NAME=Nandhana` is the default, configurable without changing source.
-3. Only after authorization, set `BOT_ENABLED=true` and run `npm start`.
-4. An allowlisted sender first reads the notice, then sends `/start` to consent.
-   Test a small private conversation. Review Malayalam/Manglish quality and AI identity.
+The WhatsApp adapter uses pinned **Baileys 6.7.24 (legacy), an unofficial linked-device
+WhatsApp Web library**, not Meta Cloud API. Protocol breakage, WhatsApp terms and account
+restrictions are risks. Production/business usage needs a separate platform review.
 
-This app does not discover IDs, export contacts, message people proactively, or handle
-credentials on your behalf. Both phone-number and LID forms are accepted but not aliased:
-if WhatsApp changes the ID form, allowlisting/consent/history must be set for the new ID.
-Do not claim this is deployed or ready to answer customer messages yet.
+## Commands and data
 
-## Commands
+- `/help`: fixed bilingual instructions.
+- `/start`: consent to retrieve submitted URLs from Pinterest and upload media to WhatsApp.
+- `/reset`: revoke consent; `/start` is required again. There is no chat history to clear.
+- `/stop`: opt out, including when rate-limited; `/start` opts in again.
 
-- `/help`: bilingual help and AI identity, locally generated.
-- `/start`: opt into sending subsequent chat content/context to the configured AI provider.
-- `/reset`: clear this chat's local in-memory conversation; consent remains.
-- `/stop`: opt out and clear local history. Processed even when rate-limited.
+No AI calls or conversation database exist. Only consent/rate/deduplication/queue state
+is held in memory. Restart or 30-minute idle expiry requires opt-in again. `/stop` is
+serialized after earlier same-chat work; it cannot recall an already sent attachment.
+Pinterest/CDN see the requested URL and host IP; WhatsApp receives the returned media.
+No URLs, message bodies, phone/chat IDs, session data or raw network errors are logged
+by the app. Fixed event labels only; library logging is silent. Third-party services
+have their own retention policies; reset/stop do not delete their records.
 
-Commands are case-insensitive. They are not sent to the AI. `/stop` follows any already
-queued message in the same chat; it cannot recall a request or reply already sent.
-`/reset` and `/stop` do **not** delete WhatsApp or provider-side records.
+## Network, resource and file safeguards
 
-## Architecture and bounds
+- HTTPS-only exact page/CDN host allowlists, URL credentials/fragment/nondefault-port
+  rejection and validation **before every redirect**; at most 3 redirects per resource.
+- DNS checks reject private/local/link-local/reserved/multicast and IPv4-mapped IPv6
+  addresses. All returned DNS records must be public unicast. The checked IP is provided
+  directly to the TLS socket (no second lookup/DNS-rebinding gap); TLS verifies hostname.
+- No automatic retries. 403, 429, bad status, login redirects, CAPTCHA titles or unsafe
+  redirects fail. A guard rejection is not permission to route around the guard.
+- Default 20-second wall deadline **per resource** across its redirects (page and media
+  are separate resources); aborted on shutdown. No compressed responses are accepted.
+- HTML cap 2 MiB. Download cap **12 MiB** by default, configurable up to 40 MiB; streamed
+  with backpressure to a random temporary directory, not into an unbounded memory buffer.
+- MIME whitelist and basic magic-byte checks; no SVG, arbitrary file or executable output.
+  These checks are not antivirus, a full decoder, or protection against every malformed file.
+- File permissions 0600; temporary directory created privately. Cleanup runs after send,
+  failed download/send, and orderly shutdown. SIGKILL/power loss can leave temporary files;
+  operators must securely clean stale `nandhana-*` temp directories after a crash.
+- Maximum 2 simultaneous downloads, 10 pending messages/chat, 100 globally; 100 consent
+  records; 2,000 dedupe IDs for up to 5 minutes. Six accepted inputs/minute/chat by default.
+  Excess traffic is silently ignored to avoid reply storms; stop acknowledgments bypass
+  rate limits. Deduplication is bounded/in-memory, not exactly-once delivery.
+- Only fresh direct text notify events; own messages, groups, status, broadcasts,
+  newsletters, incoming media and old history are ignored. No unsolicited-send API.
 
-- `src/config.js`: strict configuration, disabled default, required allowlist/provider on activation.
-- `src/persona.js`: transparent Nandhana persona, language instructions, bilingual local copy.
-- `src/handler.js`: dependency-injected handler; only plain direct text, per-chat promise
-  serialization, deduplication, consent, commands, history/TTL, throttling and reply handling.
-- `src/ai.js`: injected fetch adapter, HTTPS config, forbidden redirects, abortable timeout,
-  64 KiB response cap and checked response shape. No retry that might duplicate billing.
-- `src/main.js`: lazy Baileys adapter; registered-session-only startup, fresh notify events
-  only, silent library logger, serialized auth saves and signal/disconnect shutdown.
+## Modules
 
-Defaults: 2,000 input chars; 2,000 output Unicode codepoints (plus AI prefix); 6 prior
-turns/chat; 100 chat records; 30-minute idle expiry; 6 accepted messages/minute/chat.
-Hard caps: 10 queued messages/chat, 100 queued globally, 4 simultaneous AI requests,
-2,000 dedupe IDs retained for at most five minutes. Excess traffic/capacity is silently
-ignored to avoid reply storms. Opt-out acknowledgments are not rate-limited. Rate limits,
-TTL and history settings are documented in `.env.example`; they are not a spending budget.
-Memory is bounded and ephemeral; there is no conversation database. Delivery dedupe is
-best-effort (bounded, in-memory), not exactly-once delivery. Received data must briefly
-exist in memory even if rejected. AI providers may impose different token/context limits.
+- `src/config.js`: disabled default, allowlist and validated limits.
+- `src/copy.js`: fixed friendly Malayalam/English responses named Nandhana.
+- `src/network.js`: URL policy, IP checks, DNS pinning, bounded redirects/deadlines.
+- `src/pinterest.js`: schema/OG parser, capped HTML/media consumption, signatures/cleanup.
+- `src/handler.js`: opt-in, commands, serialization/rate/resource limits, attachment flow.
+- `src/main.js`: lazy Baileys adapter, restricted local auth, fresh events, shutdown.
 
-## Privacy, reliability and limitations
+## Verification — distinguish fixtures from live access
 
-Chat text/recent context go only to the chosen AI endpoint after opt-in; no user IDs are
-included in its request body. The provider may retain/process data under its own terms.
-Inform users of the real provider and retention policy before activation; never promise
-end-to-end confidentiality once messages are sent to an AI service. Do not solicit secrets.
-Application logs contain fixed lifecycle/error event labels, not message bodies, IDs,
-session data, provider bodies or tokens. Do not enable dependency debug logging.
+Verified with Node 22.23.4: **50/50 offline tests passed**, syntax checks passed for
+**8 JavaScript files**, clean locked installation with scripts disabled succeeded,
+and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
+Audit results are not a security guarantee.
 
-Auth files are powerful credentials; `.gitignore`, restrictive permissions and local-only
-storage are safeguards, not encryption. The Baileys multi-file auth helper is a prototype
-utility, not a recommended production/high-concurrency session backend. One process only.
-On disconnect, startup/session error or expired linking, manually inspect/restart; there
-is no reconnect storm or automatic re-pairing. SIGINT/SIGTERM abort in-flight AI work,
-suppress late replies, drain processing and close the socket without logging out.
-No SLA, monitoring, spend cap, production consent ledger, content moderation service or
-human escalation system is included. Prompt instructions cannot guarantee safe model
-behavior; the visible AI prefix prevents an unlabeled model response but cannot guarantee
-that every generated sentence follows identity/safety rules.
+- Offline tests cover image/MP4 extraction, shortlink redirects, streamed media handling,
+  cleanup, consent, attachment callbacks, limits, restricted pages and SSRF regressions.
+- Mock media bytes prove transport/type handling, **not** real decoding or WhatsApp delivery.
+- Public read-only smoke: `https://www.pinterest.com/pin/664281013778109217/` returned
+  **HTTP 200, text/html, 1,379,953 bytes** without login via curl. This parser read that
+  saved public page and correctly identified direct MP4 `VideoObject.contentUrl` metadata.
+- A subsequent live attempt through this app's guarded transport failed immediately with
+  **`Error: DNS rejected`**. It was not retried or bypassed. Thus no live media transfer
+  succeeded; image download, video bytes, shortlink resolution and WhatsApp sending remain
+  verified by fixtures only, not live end-to-end. Live environment DNS must satisfy policy.
 
-## Dependencies and verification
-
-Pinned direct dependencies: `@whiskeysockets/baileys@6.7.24` (registry **legacy** tag at
-inspection, chosen instead of 7.0 release candidate API), `pino@9.6.0`, with lockfile.
-Transitive versions/Git commit are recorded in `package-lock.json`. Reassess the legacy
-release and upstream guidance before any live connection. Package audit results are
-point-in-time advisories, not a security guarantee.
-
-References checked during implementation:
-- https://registry.npmjs.org/@whiskeysockets%2fbaileys/6.7.24
-- https://github.com/WhiskeySockets/Baileys (auth, events and WebSocket API)
-- https://registry.npmjs.org/baileys/latest (upstream disclaimer and examples)
-- https://github.com/adithyanlabs/wabot (inspiration only; no code reused)
-
-Verified locally with Node 22.23.4: **31/31 offline tests passed**, syntax checks
-passed for **7 JavaScript files**, locked install with scripts disabled succeeded, and
-Baileys import/export smoke check passed without creating a socket. `npm audit` reported
-**0 known vulnerabilities** for this lockfile at inspection (not a security guarantee).
-
-`npm test` uses mock AI/send/fetch adapters; no real messaging or AI requests.
-`npm run check` checks every source/test/check-script JavaScript file for syntax.
-Offline tests cannot verify WhatsApp protocol compatibility, model availability,
-real credentials, delivery, language quality, billing behavior or hosted reliability.
+No WhatsApp account linked, QR/pairing emitted, outgoing WhatsApp message, AI request,
+deployment, CI or paid resource was used. This is a conservative **parser/downloader
+prototype**, not a universal or production-tested downloader. There is no auto reconnect,
+SLA, malware scanner or production multi-process session backend.

@@ -1,5 +1,6 @@
 import { readConfig } from './config.js';
-import { createAI } from './ai.js';
+import { createDownloader } from './pinterest.js';
+import { createTransport } from './network.js';
 import { createHandler } from './handler.js';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,10 +24,11 @@ export async function main() {
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   if (!state.creds.registered) throw new Error('No linked session. Linking is a separate supervised setup step; no QR or pairing code is emitted.');
   // This utility store is suitable for a small prototype, not multi-instance production.
-  const ai = createAI(config);
+  const downloader = createDownloader(config, createTransport({ timeout: config.timeout }));
   let socket, shuttingDown = false;
   const handler = createHandler(config, {
-    ai, send: async (jid, text) => { if (!shuttingDown) await socket.sendMessage(jid, { text }); },
+    downloader, send: async (jid, text) => { if (!shuttingDown) await socket.sendMessage(jid, { text }); },
+    sendMedia: async (jid, media, caption) => { if (!shuttingDown) await socket.sendMessage(jid, { [media.type]: { url: media.path }, mimetype: media.mimetype, caption }); },
     log: event => console.warn(event)
   });
   const startedAt = Math.floor(Date.now() / 1000);
@@ -67,5 +69,5 @@ export async function main() {
   process.once('SIGTERM', () => void shutdown());
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch(() => { console.error('Startup failed. Check activation, provider configuration and linked session. No private error details logged.'); process.exitCode = 1; });
+  main().catch(() => { console.error('Startup failed. Check activation, downloader configuration and linked session. No private error details logged.'); process.exitCode = 1; });
 }

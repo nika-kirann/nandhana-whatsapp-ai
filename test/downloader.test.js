@@ -31,7 +31,7 @@ function botFixture(t, options = {}) {
     send: async (_, text) => sends.push(text), sendMedia: async (_, media) => mediaSends.push(media.type), log: label => logs.push(label), ...options.adapters
   });
   t.after(() => bot.close());
-  return { bot, sends, mediaSends, calls, logs, cleaned: () => cleaned, start: () => bot.handle(message('/start')) };
+  return { bot, sends, mediaSends, calls, logs, cleaned: () => cleaned, start: () => bot.handle(message('.start')) };
 }
 test('disabled Nandhana config needs no AI settings', () => { assert.equal(readConfig({}).name, 'Nandhana'); assert.equal(readConfig({}).enabled, false); assert.equal(readConfig({ ALLOWED_CHATS: '123@lid' },{activated:true}).enabled, true); });
 test('activation requires allowlist and validated limits', () => { for (const env of [{}, { MAX_MEDIA_BYTES: '90000000' }, { DOWNLOAD_TIMEOUT_MS: '-1' }, { ALLOWED_CHATS: '1@g.us' }]) assert.throws(() => readConfig(env,{activated:true})); });
@@ -100,15 +100,15 @@ test('consent/help/start are local; valid input sends image after opt-in and cle
   const f=botFixture(t); await f.bot.handle(message(pin)); assert.equal(f.calls.length,0); assert.match(f.sends[0],/Nandhana/); await f.start(); await f.bot.handle(message(pin)); assert.equal(f.calls.length,1); assert.deepEqual(f.mediaSends,['image']); assert.equal(f.cleaned(),1);
 });
 test('stop and reset revoke consent without history or provider calls', async t => {
-  const f=botFixture(t); await f.start(); await f.bot.handle(message('/reset')); await f.bot.handle(message(pin)); assert.equal(f.calls.length,0); await f.start(); await f.bot.handle(message('/stop')); await f.bot.handle(message(pin)); assert.equal(f.calls.length,0);
+  const f=botFixture(t); await f.start(); await f.bot.handle(message('.reset')); await f.bot.handle(message(pin)); assert.equal(f.calls.length,0); await f.start(); await f.bot.handle(message('.stop')); await f.bot.handle(message(pin)); assert.equal(f.calls.length,0);
 });
 test('ignore own/group/status/non-allowlist messages and disabled bot', async t => {
-  const f=botFixture(t); for (const remoteJid of ['1@g.us','status@broadcast','999@s.whatsapp.net']) { const m=message('/start');m.key.remoteJid=remoteJid;await f.bot.handle(m); }
-  const own=message('/start');own.key.fromMe=true;assert.equal(incoming(own),null);await f.bot.handle(own);assert.equal(f.sends.length,0);
+  const f=botFixture(t); for (const remoteJid of ['1@g.us','status@broadcast','999@s.whatsapp.net']) { const m=message('.start');m.key.remoteJid=remoteJid;await f.bot.handle(m); }
+  const own=message('.start');own.key.fromMe=true;assert.equal(incoming(own),null);await f.bot.handle(own);assert.equal(f.sends.length,0);
   const g=botFixture(t,{config:{enabled:false}});await g.start();assert.equal(g.sends.length,0);
 });
 test('rate limits, duplicate IDs and input limits prevent downloads', async t => {
-  const f=botFixture(t,{config:{rateLimit:2,maxInput:100}});await f.start();const m=message(pin);await f.bot.handle(m);await f.bot.handle(m);await f.bot.handle(message(pin));assert.equal(f.calls.length,1);await f.bot.handle(message('/stop'));assert.match(f.sends.at(-1),/stopped/);
+  const f=botFixture(t,{config:{rateLimit:2,maxInput:100}});await f.start();const m=message(pin);await f.bot.handle(m);await f.bot.handle(m);await f.bot.handle(message(pin));assert.equal(f.calls.length,1);await f.bot.handle(message('.stop'));assert.match(f.sends.at(-1),/stopped/);
   const g=botFixture(t,{config:{maxInput:10}});await g.start();await g.bot.handle(message(pin));assert.equal(g.calls.length,0);
 });
 test('media send failure still cleans local file, generic error only', async t => { const f=botFixture(t,{adapters:{sendMedia:async()=>{throw new Error('PRIVATE_URL');}}});await f.start();await f.bot.handle(message(pin));assert.equal(f.cleaned(),1);assert.deepEqual(f.logs,['download_failed']);assert.ok(!f.sends.join().includes('PRIVATE_URL')); });
@@ -130,12 +130,12 @@ test('per-chat queue capped at ten and processes sequentially', async t => {
 test('global download concurrency capped at two', async t => {
   let release;const gate=new Promise(resolve=>release=resolve);let calls=0;
   const ids=['123@s.whatsapp.net','456@lid','789@lid'];const f=botFixture(t,{config:{allowedChats:new Set(ids)},downloader:{download:async()=>{calls++;await gate;return {type:'image',path:'mock',cleanup:async()=>{}};}}});
-  const m=(text,jid)=>{const value=message(text);value.key.remoteJid=jid;return value;};for(const jid of ids)await f.bot.handle(m('/start',jid));
+  const m=(text,jid)=>{const value=message(text);value.key.remoteJid=jid;return value;};for(const jid of ids)await f.bot.handle(m('.start',jid));
   const tasks=ids.map(jid=>f.bot.handle(m(pin,jid)));await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,2);release();await Promise.all(tasks);
 });
 test('consent TTL and max chat count remain bounded', async t => {
   let time=0;const f=botFixture(t,{config:{chatTtl:1000,maxChats:1,allowedChats:new Set(['123@s.whatsapp.net','456@lid'])},adapters:{now:()=>time}});await f.start();
-  const other=message('/start');other.key.remoteJid='456@lid';await f.bot.handle(other);assert.equal(f.sends.length,1);
+  const other=message('.start');other.key.remoteJid='456@lid';await f.bot.handle(other);assert.equal(f.sends.length,1);
   time=1001;await f.bot.handle(message(pin));assert.equal(f.calls.length,0);assert.match(f.sends.at(-1),/opt in/);
 });
 test('failed streamed download leaves no new temporary directories', async () => {
@@ -147,5 +147,5 @@ test('failed streamed download leaves no new temporary directories', async () =>
 });
 test('global pending queue is capped at one hundred', async t => {
   const ids=Array.from({length:105},(_,i)=>`${1000+i}@lid`);const f=botFixture(t,{config:{allowedChats:new Set(ids),maxChats:200}});
-  await Promise.all(ids.map(jid=>{const m=message('/start');m.key.remoteJid=jid;return f.bot.handle(m);}));assert.equal(f.sends.length,100);
+  await Promise.all(ids.map(jid=>{const m=message('.start');m.key.remoteJid=jid;return f.bot.handle(m);}));assert.equal(f.sends.length,100);
 });

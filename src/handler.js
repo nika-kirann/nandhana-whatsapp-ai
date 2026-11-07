@@ -14,21 +14,21 @@ export function createHandler(config, { downloader, send, sendMedia, now = Date.
   const chats = new Map(), queues = new Map(), seen = new Map();
   let stopped = false, pending = 0, activeDownloads = 0, paused=initialPaused===true, controlError=false, adminPending=0, adminQueue=Promise.resolve();
   let adminTimes=[];
-  const isAdminCommand=text=>/^\/(owner|bot)(?:\s|$)/i.test(text);
+  const isAdminCommand=text=>/^\.(owner|bot)(?:\s|$)/i.test(text);
   // Canonical PN sender identity comes only from Baileys transport, never text/profile/alternate JID fields.
   // Pinned 6.7.24 has no public authenticated LID->PN mapping API: LID admin is denied.
   const isOwner=jid=>!!config.ownerNumber && jid===config.ownerNumber+'@s.whatsapp.net';
   async function admin({jid,text}) {
     if(stopped)return;adminTimes=adminTimes.filter(t=>now()-t<60000);if(adminTimes.length>=6)return;adminTimes.push(now());
     const command=text.toLowerCase().replace(/\s+/g,' ');
-    if(command==='/bot pause'||command==='/bot resume'){
-      const next=command==='/bot pause';if(next)paused=true;
+    if(command==='.bot pause'||command==='.bot resume'){
+      const next=command==='.bot pause';if(next)paused=true;
       try {if(persistPaused)await persistPaused(next);if(stopped)return;paused=next;controlError=false;}
       catch {paused=true;controlError=true;}
       if(!stopped)await send(jid,controlError?'Control save failed; downloads paused. Check the protected owner screen.':paused?'Downloads paused. Owner commands remain available.':'Downloads resumed; configured access and sender consent still apply.');
-    }else if(command==='/bot status'){
+    }else if(command==='.bot status'){
       if(!stopped)await send(jid,'Nandhana: '+(paused?'paused':'running')+'; access '+(config.publicAccess?'public':'restricted')+'; controls '+controlPersistence+'.');
-    }else if(!stopped)await send(jid,'Owner controls: /owner help · /bot status · /bot pause · /bot resume. No shell, account takeover or bulk-message controls.');
+    }else if(!stopped)await send(jid,'Owner controls: .owner help · .bot status · .bot pause · .bot resume. No shell, account takeover or bulk-message controls.');
   }
   const report = event => { try { log(event); } catch { /* logging must not break processing */ } };
   const sweep = () => {
@@ -50,7 +50,7 @@ export function createHandler(config, { downloader, send, sendMedia, now = Date.
     chat.touched = now();
     const command = text.toLowerCase();
     // Opt-out is always honored, even when rate-limited.
-    if (command === '/stop') {
+    if (command === '.stop') {
       chat.optedIn = false;
       if (!stopped) await send(jid, copy(config.name, 'stop', text));
       return;
@@ -60,18 +60,18 @@ export function createHandler(config, { downloader, send, sendMedia, now = Date.
     chat.times.push(now());
     const reply = text => stopped ? Promise.resolve() : send(jid, text);
     if (text.length > config.maxInput) return reply(copy(config.name, 'invalid'));
-    if (command === '/reset') { chat.optedIn = false; return reply(copy(config.name, 'reset')); }
-    if (command === '/help') return reply(copy(config.name, 'help', text));
-    if (command === '/start') {
+    if (command === '.reset') { chat.optedIn = false; return reply(copy(config.name, 'reset')); }
+    if (command === '.help') return reply(copy(config.name, 'help', text));
+    if (command === '.start') {
       if (!chat.optedIn) {
-        // Explicit /start is consent after reading the setup/first-contact notice.
+        // Explicit .start is consent after reading the setup/first-contact notice.
         chat.optedIn = true;
         return reply(copy(config.name, 'consent', text) + '\n' + copy(config.name, 'start', text));
       }
       return reply(copy(config.name, 'start', text));
     }
     if (!chat.optedIn) return reply(copy(config.name, 'consent', text));
-    if (command.startsWith('/')) return reply(copy(config.name, 'help'));
+    if (/^\.[a-z]+(?:\s|$)/i.test(command)) return reply(copy(config.name, 'help'));
     try { validateUrl(text); } catch { return reply(copy(config.name, 'invalid')); }
     if (paused) return reply('Downloads are temporarily paused. Please try later.');
     if (activeDownloads >= 2) return;

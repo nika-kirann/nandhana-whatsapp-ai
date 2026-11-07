@@ -67,7 +67,7 @@ promise of a reliable free always-on WhatsApp bot.
    An ID is only a selector, not a login token or replacement for either secret.
 7. **Pairing/restarts never activate the downloader.** Configure public access + owner number or restricted `ALLOWED_CHATS`, then
    press **Start downloader** in `/owner` after every deployment/restart. Eligible
-   senders must still `/start` to consent. **Stop downloader** releases its socket
+   senders must still `.start` to consent. **Stop downloader** releases its socket
    before another pairing/notice action. Do not run another bot/CLI process alongside it.
 
 ### Web privacy and operational boundaries
@@ -235,7 +235,7 @@ encryption, session ID, HTTPS and web-owner settings unchanged, redeploy the fea
 branch, then explicitly press **Start downloader** in `/owner` after each restart.
 Public mode does not expose pairing, credentials or any web administration route.
 
-Every public sender still needs `/start` consent before a Pin is downloaded; `/stop`
+Every public sender still needs `.start` consent before a Pin is downloaded; `.stop`
 revokes it, including when rate-limited. Existing limits remain: six accepted requests
 per sender/minute by default, 100 active consent records, 30-minute idle expiry, two
 concurrent downloads, 10 queued messages/chat and 100 globally. Excess traffic can be
@@ -245,10 +245,10 @@ always ignored.
 
 Only the configured owner gets these narrowly scoped WhatsApp controls:
 
-- `/owner help`: list controls.
-- `/bot status`: running/paused, public/restricted and persistence type.
-- `/bot pause`: pause downloads while owner command handling remains available.
-- `/bot resume`: resume under the configured access policy (does not turn restricted
+- `.owner help`: list controls.
+- `.bot status`: running/paused, public/restricted and persistence type.
+- `.bot pause`: pause downloads while owner command handling remains available.
+- `.bot resume`: resume under the configured access policy (does not turn restricted
   configuration public or bypass sender consent).
 
 Controls authenticate the **canonical direct PN sender JID decoded by Baileys**, not a
@@ -281,14 +281,14 @@ never the owner phone or credential values. Public `/healthz` remains only `ok`.
 Check `/owner` after a fresh sign-in: selected/saved session, **Start downloader** after
 restart, running rather than starting/stopped, and public/restricted mode. In restricted
 mode an exact PN/LID allowlist mismatch can silently exclude a sender; public mode removes
-that gate but never guesses owner mappings. Send `/start` again after restart or idle
+that gate but never guesses owner mappings. Send `.start` again after restart or idle
 expiry, check owner pause state, direct-chat/self-message restrictions and per-user/global
 caps. Sleeping on Koyeb Free, disconnects, unsupported Pins or guarded DNS/CDN failures
 can also prevent delivery. No live non-response cause or fix was verified in this change.
 
 ## What it supports
 
-After `/start`, send exactly one HTTPS public Pin URL:
+After `.start`, send exactly one HTTPS public Pin URL:
 
 - `https://www.pinterest.com/pin/<numeric-id>/` (also `pinterest.com`).
 - `https://pin.it/<alphanumeric-code>` if up to three HTTP redirects stay on the permitted
@@ -355,7 +355,7 @@ Package installation contacts registry/Git hosts; tests/syntax checks are offlin
    activation requires at least one entry. No contacts are discovered and number/LID
    forms are not aliased automatically.
 4. Start the web service and explicitly press **Start downloader** in `/owner`.
-5. An eligible sender must `/start` to opt in, then send a permitted public Pin URL.
+5. An eligible sender must `.start` to opt in, then send a permitted public Pin URL.
 
 The WhatsApp adapter uses pinned **Baileys 6.7.24 (legacy), an unofficial linked-device
 WhatsApp Web library**, not Meta Cloud API. Protocol breakage, WhatsApp terms and account
@@ -363,13 +363,16 @@ restrictions are risks. Production/business usage needs a separate platform revi
 
 ## Commands and data
 
-- `/help`: fixed bilingual instructions.
-- `/start`: consent to retrieve submitted URLs from Pinterest and upload media to WhatsApp.
-- `/reset`: revoke consent; `/start` is required again. There is no chat history to clear.
-- `/stop`: opt out, including when rate-limited; `/start` opts in again.
+WhatsApp commands use **dot only**; old slash commands are not supported. Web routes
+remain `/owner` and `/healthz` (with their existing slash-prefixed subroutes).
+
+- `.help`: fixed bilingual instructions.
+- `.start`: consent to retrieve submitted URLs from Pinterest and upload media to WhatsApp.
+- `.reset`: revoke consent; `.start` is required again. There is no chat history to clear.
+- `.stop`: opt out, including when rate-limited; `.start` opts in again.
 
 No AI calls or conversation database exist. Only consent/rate/deduplication/queue state
-is held in memory. Restart or 30-minute idle expiry requires opt-in again. `/stop` is
+is held in memory. Restart or 30-minute idle expiry requires opt-in again. `.stop` is
 serialized after earlier same-chat work; it cannot recall an already sent attachment.
 Pinterest/CDN see the requested URL and host IP; WhatsApp receives the returned media.
 No URLs, message bodies, phone/chat IDs, session data or raw network errors are logged

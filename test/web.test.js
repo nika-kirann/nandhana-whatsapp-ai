@@ -258,3 +258,8 @@ test('mode and paused diagnostics stay authenticated; public health carries no o
  const api=await setup(t,manager);assert.equal((await api.request('/owner/status',{auth:false})).status,401);assert.equal((await api.request('/healthz',{auth:false})).body,'ok');
  const response=await api.request('/owner/status');assert.equal(JSON.parse(response.body).controls.paused,true);const page=await api.request('/owner');assert.match(page.body,/Configured access: public/);assert.match(page.body,/Downloads: paused/);
 });
+test('WhatsApp dot prefix does not change slash-prefixed web routes',async t=>{
+ const h=harness(),api=await setup(t,h.manager);
+ assert.equal((await api.request('/owner')).status,200);assert.equal((await api.request('/healthz',{auth:false})).body,'ok');
+ for(const path of ['/.owner','/.healthz'])assert.equal((await api.request(path)).status,404);
+});

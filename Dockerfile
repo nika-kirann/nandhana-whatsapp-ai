@@ -9,6 +9,6 @@ COPY --chown=node:node migrations ./migrations
 COPY --chown=node:node scripts ./scripts
 RUN npm run build
 USER node
-ENV NODE_ENV=production PORT=8000 BOT_ENABLED=false AUTH_STORE=file AUTH_DIR=/data/auth
+ENV NODE_ENV=production PORT=8000 AUTH_DIR=/data/auth
 EXPOSE 8000
 CMD ["node", "src/web-main.js"]

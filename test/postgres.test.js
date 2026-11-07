@@ -17,8 +17,24 @@ test('embedded PostgreSQL SQL/wire-protocol integration (not Neon/native concurr
  const admin=makePool();
  t.after(async()=>{await admin.end();await wire.stop();await db.close()});
  const migration=await readFile(new URL('../migrations/001_auth.sql',import.meta.url),'utf8');await admin.query(migration);await admin.query(migration);
- const open=(sessionId,extra={})=>openPostgresAuth({pool:makePool(),sessionId,key:Buffer.alloc(32,7),codec:BufferJSON,initCreds:()=>({syntheticMarker:'SYNTHETIC-ONLY',counter:1}),fromAppState:value=>proto.Message.AppStateSyncKeyData.fromObject(value),...extra});
+ const open=(sessionId,extra={})=>openPostgresAuth({allowCreate:true,pool:makePool(),sessionId,key:Buffer.alloc(32,7),codec:BufferJSON,initCreds:()=>({syntheticMarker:'SYNTHETIC-ONLY',counter:1}),fromAppState:value=>proto.Message.AppStateSyncKeyData.fromObject(value),...extra});
  function worker(mode,session){const child=spawn(process.execPath,[fileURLToPath(new URL('../scripts/auth-db-test-worker.js',import.meta.url)),mode,session],{env:{PATH:process.env.PATH,NANDHANA_TEST_DB_PORT:String(port)},stdio:['ignore','pipe','pipe','ipc']});let out='',err='';child.stdout.on('data',b=>out+=b);child.stderr.on('data',b=>err+=b);const done=once(child,'exit').then(([code])=>({code,out,err}));return {child,done}}
+ await t.test('automatic additive migration uses same pool config and preserves encrypted records',async()=>{
+  const {migrateAuthSchema}=await import('../src/auth-schema.js');
+  const saved=await open('migration-preservation');await saved.state.keys.set({'pre-key':{fixture:{counter:1}}});await saved.close();
+  const before=await admin.query('SELECT envelope FROM nandhana_auth_records WHERE session_id=$1 ORDER BY kind,key_id',['migration-preservation']);
+  let requested;await migrateAuthSchema({store:'postgres',synthetic:true},async config=>{requested=config;return makePool()});assert.equal(requested.synthetic,true);
+  assert.deepEqual((await admin.query('SELECT envelope FROM nandhana_auth_records WHERE session_id=$1 ORDER BY kind,key_id',['migration-preservation'])).rows,before.rows);
+ });
+ await t.test('unselected/unknown existing IDs never create sessions; new ID collision refuses overwrite',async()=>{
+  await assert.rejects(open('must-not-exist',{allowCreate:false}));assert.equal((await admin.query('SELECT 1 FROM nandhana_auth_sessions WHERE session_id=$1',['must-not-exist'])).rowCount,0);
+  const a=await open('collision');await a.close();await assert.rejects(open('collision',{newSession:true}));const b=await open('collision',{allowCreate:false});await b.close();
+ });
+ await t.test('one-time notice reservation is encrypted, persisted and fenced across restarts',async()=>{
+  const a=await open('notice-marker');const claims=await Promise.all([a.claimNotice(),a.claimNotice()]);assert.equal(claims.filter(c=>c.claimed).length,1);await a.finishNotice('sent');await a.close();
+  const b=await open('notice-marker');assert.deepEqual(await b.claimNotice(),{claimed:false,status:'sent'});await b.close();
+  const rows=await admin.query("SELECT envelope FROM nandhana_auth_records WHERE session_id=$1 AND kind='meta'",['notice-marker']);assert.equal(rows.rowCount,1);assert.ok(!JSON.stringify(rows.rows).includes('sent'));
+ });
  await t.test('process A writes synthetic creds/Signal keys; process B retrieves exact bytes/proto',async()=>{
   const a=await worker('write','process-persistence').done;assert.equal(a.code,0);assert.equal(a.out,'write_pass\n');
   const b=await worker('read','process-persistence').done;assert.equal(b.code,0);assert.equal(b.out,'read_pass\n');
@@ -71,4 +87,15 @@ test('embedded PostgreSQL SQL/wire-protocol integration (not Neon/native concurr
  await t.test('idle pool failure stops ownership without logging private error',async()=>{
   let lost=0;const pool=makePool();const a=await open('pool-failure',{pool,onLost:()=>lost++});try{pool.emit('error',new Error('SYNTHETIC-PRIVATE-DETAIL'));await new Promise(resolve=>setImmediate(resolve));assert.equal(lost,1);assert.throws(()=>a.assertActive())}finally{await a.close()}
  });
+});
+test('schema startup refuses future version without changing existing data or creating auth tables',async()=>{
+ const db=await PGlite.create();
+ try{
+  await db.exec('CREATE TABLE nandhana_auth_schema(version integer PRIMARY KEY); INSERT INTO nandhana_auth_schema VALUES(2); CREATE TABLE unrelated_fixture(value text); INSERT INTO unrelated_fixture VALUES(\'preserved\');');
+  const migration=await readFile(new URL('../migrations/001_auth.sql',import.meta.url),'utf8');
+  await assert.rejects(db.exec(migration));await db.exec('ROLLBACK');
+  assert.equal((await db.query('SELECT version FROM nandhana_auth_schema')).rows[0].version,2);
+  assert.equal((await db.query('SELECT value FROM unrelated_fixture')).rows[0].value,'preserved');
+  assert.equal((await db.query("SELECT to_regclass('nandhana_auth_sessions') AS name")).rows[0].name,null);
+ }finally{await db.close();}
 });

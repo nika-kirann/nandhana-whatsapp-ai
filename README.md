@@ -4,7 +4,7 @@ Nandhana is now a fixed-response Malayalam/English WhatsApp **Pinterest download
 an AI chatbot. No AI provider, model, API key, inference, persona prompt, or conversation
 history remains in the current source. The repository URL/name stays unchanged.
 
-**Disabled by default. Not deployed, linked, or verified end-to-end with WhatsApp.**
+**Starts idle. This change was not deployed or live-tested with WhatsApp by the assistant.**
 
 ## Koyeb **Free Web Service**: read this first
 
@@ -32,15 +32,16 @@ promise of a reliable free always-on WhatsApp bot.
 
 ### Beginner deployment steps (you perform these; nothing deployed by this change)
 
-1. Connect this private GitHub repository in Koyeb, choose **Web Service → Free** and
+1. Connect this GitHub repository in Koyeb, choose **Web Service → Free** and
    Dockerfile build. Select **`feat/nandhana-chatbot`** while PR #1 is unmerged: `main`
    is only the bootstrap. Do not accidentally select a paid instance.
 2. Expose HTTP port **8000**, route `/`, health check **HTTP `/healthz`**. The container
    listens on `0.0.0.0` and honors `PORT` (default 8000). Use the generated HTTPS domain.
-3. Set `BOT_ENABLED=false`, `AUTH_DIR=/data/auth`, `PORT=8000`,
+3. Set `PORT=8000`,
    `PUBLIC_ORIGIN=https://YOUR-SERVICE.koyeb.app` (exact origin, no path),
    `WEB_OWNER_USERNAME` (letters/digits/underscore/hyphen), and **secret**
-   `WEB_OWNER_PASSWORD` in Koyeb's secret settings. Choose your own unique random
+   `WEB_OWNER_PASSWORD` in Koyeb's secret settings. Add secret `DATABASE_URL` and
+   `AUTH_ENCRYPTION_KEY` as described below; leave `SESSION_ID` blank for first pairing. Choose your own unique random
    password, at least 24 characters, 3 character classes and 10 distinct characters;
    32+ is recommended. No password/token is supplied in this repository.
    If the generated domain is only known after creation, set the origin then redeploy;
@@ -58,19 +59,22 @@ promise of a reliable free always-on WhatsApp bot.
    Each attempt is at most 180 seconds/six QR emissions; a single documented post-scan
    restart is allowed. No network-error retries. Failures need a separate explicit
    owner action, not a session reset; existing keys are never deleted automatically.
-6. **Pairing never activates the downloader.** Keep `BOT_ENABLED=false` until a separate
-   decision to activate. For later downloader operation use the **same** auth directory,
-   explicit `BOT_ENABLED=true` and `ALLOWED_CHATS`; senders still need `/start` consent.
-   `npm run web` serves health/owner status in either mode, but refuses pairing actions
-   in downloader mode. Do not run `npm run bot` or `npm run pair` beside it.
-   On Free the activation redeploy may lose file-mode auth (see warning above); use
-   the optional Postgres adapter for externally persisted auth. No in-browser control silently enables sending.
+6. After durable `paired` success, copy the displayed nonsecret ID. Optionally press
+   **Send my session ID to my linked number**: this separate authenticated confirmation
+   makes one bounded auth-only reconnection and sends just that ID to the socket's own
+   verified WhatsApp account. No arbitrary recipient or message input is accepted.
+   Save the ID in Koyeb as `SESSION_ID`, keeping the same database and encryption key.
+   An ID is only a selector, not a login token or replacement for either secret.
+7. **Pairing/restarts never activate the downloader.** Configure `ALLOWED_CHATS`, then
+   press **Start downloader** in `/owner` after every deployment/restart. Allowlisted
+   senders must still `/start` to consent. **Stop downloader** releases its socket
+   before another pairing/notice action. Do not run another bot/CLI process alongside it.
 
 ### Web privacy and operational boundaries
 
 - `npm run web` (Docker default) serves generic public `/` and `/healthz`; neither
   exposes session/bot connection state. HTTP health only means the web server responds,
-  **not** that WhatsApp is linked. No socket starts at disabled web startup.
+  **not** that WhatsApp is linked. No WhatsApp socket starts at web startup; Postgres schema readiness is checked first.
 - Every `/owner` route, private QR PNG and generic owner status requires authentication.
   QR/code stay in memory, delivered only to the owner with `no-store`; no public file
   server, `.pairing`/auth-directory browsing, query-string secrets or request logging.
@@ -114,58 +118,54 @@ Official Koyeb sources (checked for this change):
 ## Optional encrypted Postgres auth storage (Neon / Lakebase Postgres)
 
 **Code is ready; no production database was connected, provisioned or migrated here.**
-You supply your own secrets in Koyeb. The default is still `AUTH_STORE=file`. Setting
-only a database URL does not change the backend. No Neon CLI login/init/deploy is needed
-for this adapter, and it does not enable Neon Auth, Functions, Data API or AI Gateway.
+You supply your own secrets in Koyeb. A configured `DATABASE_URL` automatically selects
+Postgres; otherwise file storage is used. Remove any old `AUTH_STORE=file` override
+when using the database. No provider CLI or extra authentication product
+is needed. Existing file sessions are never imported or deleted automatically.
 
-### Owner setup
+### Owner setup (one database URL)
 
-1. If a database URL/password was previously pasted into chat, **rotate that password
-   first** in your provider account. Do not reuse the disclosed credential.
-2. Privately configure these variables (never commit the values or send them in chat):
+1. **Rotate any database password previously pasted into chat** before configuring it.
+2. Supply secret **`DATABASE_URL`**, preferably your provider's direct Postgres URL,
+   and secret **`AUTH_ENCRYPTION_KEY`** (64 hex characters / 32 random bytes).
+   The same URL is used for schema setup and runtime. A transaction pooler is accepted
+   if it supports the SQL/DDL, but a second URL is never required. TLS certificate
+   verification cannot be disabled. Keep the encryption key unchanged across deployments
+   and back it up separately; changing it cannot decrypt old sessions.
+3. Keep `PUBLIC_ORIGIN`, `WEB_OWNER_USERNAME`, secret `WEB_OWNER_PASSWORD`, `PORT=8000`.
+   `SESSION_ID` is **blank for new pairing**. Explicit owner pairing generates a random
+   UUID and reveals it only after credentials are saved and the connection verified.
+   Configure that displayed ID as `SESSION_ID` to select it on later deployments.
+   Existing IDs (1–64 letters/digits/underscore/hyphen) remain compatible. Unknown IDs
+   fail closed instead of creating/replacing a session. The ID alone grants no access.
+4. `npm start` / Docker applies the additive, transactional, version-checked schema
+   before serving HTTP. It touches only the three `nandhana_auth_*` tables; no drops,
+   credential import or breaking data migration. Its transaction-scoped migration lock
+   prevents overlapping DDL; runtime still uses row leases/fencing. The database role
+   must have schema/table setup permissions. `npm run db:migrate` remains optional and
+   uses the same URL. Database/schema failure refuses startup rather than falling back.
+5. Pair at `/owner`; optionally confirm the self-notification, save `SESSION_ID`, then
+   configure `ALLOWED_CHATS` and explicitly press **Start downloader**. One replica only.
+   Existing sessions reconnect only on an owner action, never automatically on restart.
 
-   | Variable | Value / purpose |
-   | --- | --- |
-   | `AUTH_STORE` | `postgres` (opt-in; `file` preserves the old backend) |
-   | `DATABASE_URL_POOLED` | Console-provided pooled Postgres URL for app queries; `DATABASE_URL` is an alternative. Pooled wins when both are set. Direct URLs also work for runtime queries. |
-   | `DATABASE_URL_UNPOOLED` | Direct/non-pooler URL **only for the explicit migration command**. It is not used for normal app traffic. |
-   | `AUTH_ENCRYPTION_KEY` | Exactly 64 hexadecimal characters, encoding 32 cryptographically random bytes; keep the same key across every redeploy. Store separately from the database in deployment secrets, not in Git or committed env files. |
-   | `SESSION_ID` | Stable nonsecret name, e.g. `nandhana-primary`; 1–64 letters/digits/underscore/hyphen. Every process for the same WhatsApp session must use the same ID. |
-   | `BOT_ENABLED` | Keep `false` for owner-supervised linking; no automatic activation. |
+Generate the encryption key privately on your own computer without printing it:
 
-   Keep existing `PUBLIC_ORIGIN`, `WEB_OWNER_USERNAME`, secret `WEB_OWNER_PASSWORD`,
-   `PORT` and HTTPS setup. `AUTH_DIR` is ignored in Postgres mode. No local auth files are automatically imported. QR/view files are not uploaded;
-   any auth-protocol fields inside Baileys credentials are encrypted with those credentials.
-3. Generate the encryption key **privately on your own computer** (this command writes
-   an owner-only file, does not print the key, and refuses to overwrite an existing key):
+```sh
+node -e 'const fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto");const dir=path.join(os.homedir(),".config","nandhana");fs.mkdirSync(dir,{recursive:true,mode:0o700});const fd=fs.openSync(path.join(dir,"auth-encryption-key.txt"),"wx",0o600);fs.writeFileSync(fd,crypto.randomBytes(32).toString("hex"));fs.closeSync(fd)'
+```
 
-   ```sh
-   node -e 'const fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto");const dir=path.join(os.homedir(),".config","nandhana");fs.mkdirSync(dir,{recursive:true,mode:0o700});const fd=fs.openSync(path.join(dir,"auth-encryption-key.txt"),"wx",0o600);fs.writeFileSync(fd,crypto.randomBytes(32).toString("hex"));fs.closeSync(fd)'
-   ```
+Privately transfer the file contents to deployment secrets. Never commit/share it.
 
-   Privately transfer that file's contents into the deployment secret. Securely keep
-   an independent backup of the key; losing/changing it makes stored sessions unreadable.
-   Key rotation requires a separately reviewed re-encryption migration, not a new env value.
-4. With your secrets injected in a trusted owner environment, run **once, explicitly**:
+### Session-ID notification boundaries
 
-   ```sh
-   npm ci --ignore-scripts
-   npm run build
-   npm run db:migrate
-   ```
-
-   Migration `migrations/001_auth.sql` is versioned, transactional and idempotent. It
-   requires a direct URL and permission to create the three tables. The app never
-   creates/alters schema automatically. A missing schema, SQL/network error, wrong key,
-   corrupt ciphertext or missing credentials in an initialized session fails closed;
-   it does **not** fall back to file storage or silently generate replacement auth.
-   Runtime can use a lower-privilege role with SELECT/INSERT/UPDATE/DELETE on these tables.
-5. Deploy the implementation branch, keep **one replica**, use `npm start` (or `npm run web`;
-   Docker starts the same web entrypoint), and reopen `/owner`. An explicit pairing POST
-   acquires database ownership and stores new creds plus Signal keys. Pairing success
-   releases ownership; a later separately approved downloader startup uses the same DB,
-   key and `SESSION_ID`. `BOT_ENABLED=true` still requires `ALLOWED_CHATS` and sender `/start`.
-   Do not run `npm run bot` or `npm run pair` in parallel with the web/downloader socket.
+The post-pairing confirmation sends **only** `Nandhana session ID: <nonsecret ID>` to the
+verified socket's own account, with no chat/history listeners or arbitrary-recipient API.
+An encrypted, fenced database reservation permits **at most one attempt per session**,
+including across restarts/concurrent clicks. `sent` means the library send resolved,
+not a read receipt. Disconnect/timeout during a send is `unknown`; it is never retried
+because delivery may already have occurred. Copy the displayed ID if notification fails,
+is unavailable, or its outcome is uncertain. File mode does not support this notification.
+No deployment, live message, pairing request or provider connection was performed here.
 
 ### Security, limits and migration boundaries
 
@@ -189,9 +189,9 @@ for this adapter, and it does not enable Neon Auth, Functions, Data API or AI Ga
   queries support Neon's transaction pooler. Keep one replica: a lease is not a
   multi-replica bot design. After crash, wait up to 30 seconds for lease expiry. Batch
   operations cap at 1,000 keys and encrypted plaintext records at 1 MiB.
-- Disabled web startup only validates configuration and serves HTTP; **no DB/WhatsApp
-  connection or lease** is opened until an explicit pairing action. `/healthz` is web
-  liveness, not database/WhatsApp readiness. No retries or auto-reconnect on DB failure.
+- Postgres startup connects only for schema setup, then releases the pool. No WhatsApp
+  connection or session lease opens until an owner action. `/healthz` is web liveness,
+  not continuing database/WhatsApp readiness. No retries or auto-reconnect on failure.
 - Existing auth directories/keys are preserved untouched; there is **no automatic file
   import or deletion**. This change does not migrate an existing local linked identity.
   For a new database session, explicitly pair again and review old devices on your phone.
@@ -278,7 +278,7 @@ npm run check
 npm run bot
 ```
 
-With `BOT_ENABLED=false`, startup prints `Bot disabled` and exits before importing the
+Direct `npm run bot` prints `Downloader idle` and exits before importing the
 WhatsApp library, creating auth state, requesting Pinterest, or sending anything.
 Package installation contacts registry/Git hosts; tests/syntax checks are offline.
 
@@ -291,7 +291,7 @@ Package installation contacts registry/Git hosts; tests/syntax checks are offlin
 3. Set local `.env`: `ALLOWED_CHATS` to exact direct-chat JIDs (`digits@s.whatsapp.net`
    or `digits@lid`). Empty permits nobody; activation requires at least one. No contacts
    are discovered and number/LID forms are not aliased automatically.
-4. Only after explicit approval, set `BOT_ENABLED=true` and start a single process.
+4. Start the web service and explicitly press **Start downloader** in `/owner`.
 5. An allowlisted sender must `/start` to opt in, then send a permitted public Pin URL.
 
 The WhatsApp adapter uses pinned **Baileys 6.7.24 (legacy), an unofficial linked-device
@@ -336,7 +336,7 @@ have their own retention policies; reset/stop do not delete their records.
   Excess traffic is silently ignored to avoid reply storms; stop acknowledgments bypass
   rate limits. Deduplication is bounded/in-memory, not exactly-once delivery.
 - Only fresh direct text notify events; own messages, groups, status, broadcasts,
-  newsletters, incoming media and old history are ignored. No unsolicited-send API.
+  newsletters, incoming media and old history are ignored. No arbitrary unsolicited-send API; the only owner notice is the separately confirmed session ID.
 
 ## Modules
 
@@ -351,8 +351,8 @@ have their own retention policies; reset/stop do not delete their records.
 
 ## Verification — distinguish fixtures from live access
 
-Verified with Node 22.23.4: **114/114 offline tests passed**, syntax checks passed for
-**29 JavaScript files**, clean locked installation with scripts disabled succeeded,
+Verified with Node 22.23.4: **offline tests passed (see current npm test output)**, syntax checks passed for
+**all JavaScript files**, clean locked installation with scripts disabled succeeded,
 and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
 Audit results are not a security guarantee.
 
@@ -372,12 +372,13 @@ outgoing WhatsApp message, AI request, deployment, CI or paid resource used. The
 owner-approved auth-only pairing command below was added later; its current run status
 is recorded only in the private status file, not inferred from these offline checks. This is a conservative **parser/downloader
 prototype**, not a universal or production-tested downloader. There is no auto reconnect,
-SLA, malware scanner or production multi-process session backend.
+SLA, malware scanner or native-Postgres production validation.
 
 ## Owner-supervised QR linking (auth only)
 
-This is separate from the downloader. Keep `BOT_ENABLED=false` (the command refuses
-`BOT_ENABLED=true`). With the owner present and explicitly approving linking, run:
+This local file-backend workflow is separate from the downloader. For new Postgres
+sessions use the web owner screen above. With the owner present and explicitly approving
+local file linking, run:
 
 ```sh
 npm run pair -- --owner-approved
@@ -400,14 +401,14 @@ Baileys 6.7 QR sessions are identified by an in-memory `creds.me` identity; its 
 flag is not a reliable QR-session guard. No identity values are displayed or logged. Do not start multiple pairing processes concurrently.
 Generic failure/expiry clears the displayed QR; a new attempt needs owner approval.
 
-No inbox, chat, history, download or user-message send handlers are installed. Initial
+No inbox, chat, history, download or user-message send handlers are installed in pairing. Initial
 queries, history requests, own-event emission and online presence are disabled, and all
 chat JIDs are ignored. WhatsApp may still deliver auth-required protocol/notifications
 internally; this app does not inspect, display, store or act on chat content. Auth uses
 ignored `auth/`, owner-only directory permissions and umask 077 for session files.
 The multi-file auth helper remains a prototype utility, not a production backend.
 
-`BOT_ENABLED` is not changed and no bot process is started by pairing. Linking does not
+No downloader process is started by pairing. Linking does not
 authorize outgoing messages or downloader activation. You can revoke the linked device
 from the phone's Linked devices screen. A crash/SIGKILL can leave a stale QR image: never
 scan if status is not current or its PID is no longer running.
@@ -429,8 +430,8 @@ Only actual socket-open plus successful credential persistence produces `paired`
 
 Pairing honors the same `AUTH_DIR` setting as the bot. A fresh owner-authorized session
 can use a newly created private directory outside the repository while retaining old
-session directories unchanged. Store this path only in ignored local `.env`, keep
-`BOT_ENABLED=false`, and never run multiple attempts concurrently. Changing session
+session directories unchanged. Store this path only in ignored local `.env`, and
+never run multiple attempts concurrently. Changing session
 paths does not revoke an old linked device; review Linked devices on the phone separately.
 
 ## Optional phone-number linking code (prepare only until owner supplies number)

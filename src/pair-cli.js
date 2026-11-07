@@ -10,7 +10,7 @@ import { readPrivatePhone } from './private-phone.js';
 export { resolvePairAuthDir } from './auth-path.js';
 // QR/auth material never goes to stdout/stderr, logs, chat, or a public URL.
 export async function runPairCLI() {
-  if (!process.argv.includes('--owner-approved') || process.env.BOT_ENABLED === 'true') {
+  if (!process.argv.includes('--owner-approved')) {
     process.exitCode = 1; return;
   }
   process.umask(0o077);

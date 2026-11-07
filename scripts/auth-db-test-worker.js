@@ -9,7 +9,7 @@ const [mode,sessionId]=process.argv.slice(2);
 const pool=new Pool({host:'127.0.0.1',port,database:'postgres',user:'postgres',ssl:false,max:1,connectionTimeoutMillis:5000,query_timeout:5000});
 let store;
 try {
-  try { store=await openPostgresAuth({pool,sessionId,key:Buffer.alloc(32,7),codec:BufferJSON,initCreds:()=>({syntheticMarker:'SYNTHETIC-ONLY',counter:1}),fromAppState:value=>proto.Message.AppStateSyncKeyData.fromObject(value)}); }
+  try { store=await openPostgresAuth({allowCreate: ['write','hold'].includes(process.argv[2]),pool,sessionId,key:Buffer.alloc(32,7),codec:BufferJSON,initCreds:()=>({syntheticMarker:'SYNTHETIC-ONLY',counter:1}),fromAppState:value=>proto.Message.AppStateSyncKeyData.fromObject(value)}); }
   catch (error) { if (mode==='contend' && error.message==='AUTH_DATABASE_UNAVAILABLE_OR_SESSION_LOST') { process.stdout.write('exclusive_pass\n'); process.exit(0); } throw error; }
   if(mode==='write') {
     store.state.creds.counter=2; await store.saveCreds();

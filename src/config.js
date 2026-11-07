@@ -3,14 +3,13 @@ const integer = (env, key, fallback, min, max) => {
   if (!Number.isInteger(value) || value < min || value > max) throw new Error(`Invalid ${key}`);
   return value;
 };
-export function readConfig(env = process.env) {
-  if (env.BOT_ENABLED && !['true', 'false'].includes(env.BOT_ENABLED)) throw new Error('Invalid BOT_ENABLED');
+export function readConfig(env = process.env, { activated = false } = {}) {
   const allowedChats = new Set((env.ALLOWED_CHATS || '').split(',').map(x => x.trim()).filter(Boolean));
   if ([...allowedChats].some(x => !/^\d+@(s\.whatsapp\.net|lid)$/.test(x))) throw new Error('Invalid ALLOWED_CHATS');
   const name = env.BOT_NAME?.trim() || 'Nandhana';
   if (!/^[\p{L}\p{N} _-]{1,40}$/u.test(name)) throw new Error('Invalid BOT_NAME');
   const config = {
-    enabled: env.BOT_ENABLED === 'true', name, allowedChats,
+    enabled: activated, name, allowedChats,
     authDir: env.AUTH_DIR || './auth',
     maxInput: integer(env, 'MAX_INPUT_CHARS', 2000, 1, 10000),
     maxChats: integer(env, 'MAX_CHATS', 100, 1, 1000),

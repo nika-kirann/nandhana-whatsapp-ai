@@ -1,4 +1,14 @@
 BEGIN;
+SET LOCAL statement_timeout = '10s';
+SET LOCAL lock_timeout = '5s';
+SELECT pg_advisory_xact_lock(1647083441);
+DO $$ BEGIN
+  IF to_regclass('nandhana_auth_schema') IS NOT NULL THEN
+    IF (SELECT count(*) FROM nandhana_auth_schema) <> 1 OR NOT EXISTS (SELECT 1 FROM nandhana_auth_schema WHERE version=1) THEN
+      RAISE EXCEPTION 'Unsupported Nandhana auth schema version';
+    END IF;
+  END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS nandhana_auth_schema (version integer PRIMARY KEY CHECK (version = 1));
 CREATE TABLE IF NOT EXISTS nandhana_auth_sessions (
   session_id text PRIMARY KEY, owner uuid, fence bigint NOT NULL DEFAULT 0,

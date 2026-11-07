@@ -22,7 +22,7 @@ export function createOwnerServer(config, pairing, { now = Date.now } = {}) {
       // No request/access logging. Health is intentionally generic and never queries WhatsApp.
       if (req.url === '/healthz' && ['GET','HEAD'].includes(req.method)) return reply(200, req.method === 'HEAD' ? '' : 'ok');
       if (req.url === '/' && req.method === 'GET') return reply(200, 'Nandhana service. Owner access: /owner');
-      if (!['/owner','/owner/status','/owner/qr.png','/owner/start','/owner/stop'].includes(req.url)) return reply(404, 'Not found');
+      if (!['/owner','/owner/status','/owner/qr.png','/owner/start','/owner/stop','/owner/activate','/owner/deactivate','/owner/notify'].includes(req.url)) return reply(404, 'Not found');
       if (req.headers.host !== config.host || !(req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https')) return reply(400, 'HTTPS owner origin required');
       const key = req.socket.remoteAddress || 'unknown';
       for (const [id, item] of clients) if (now() - item.at >= 600000) clients.delete(id);
@@ -55,12 +55,18 @@ export function createOwnerServer(config, pairing, { now = Date.now } = {}) {
       if (req.method === 'GET' && req.url === '/owner/qr.png') {
         const bytes = pairing.qr(); return bytes ? reply(200, bytes, { 'Content-Type': 'image/png' }) : reply(404, 'No active QR');
       }
-      if (req.method !== 'POST' || !['/owner/start','/owner/stop'].includes(req.url)) return reply(405, 'Method not allowed');
+      if (req.method !== 'POST' || !['/owner/start','/owner/stop','/owner/activate','/owner/deactivate','/owner/notify'].includes(req.url)) return reply(405, 'Method not allowed');
       if (req.headers.origin !== config.origin || !session || req.headers['content-type'] !== 'application/x-www-form-urlencoded') return reply(403, 'Invalid owner action');
       let body = ''; for await (const part of req) { if (Buffer.byteLength(body) + part.length > 1024) return reply(413, 'Input too large'); body += part.toString('utf8'); }
       const fields = new URLSearchParams(body);
       if (!equal(fields.get('csrf') || '', session.csrf)) return reply(403, 'Invalid owner action');
       if ([...fields.keys()].some(k => !['csrf','mode','phone'].includes(k)) || [...new Set(fields.keys())].some(k => fields.getAll(k).length !== 1)) return reply(400, 'Invalid fields');
+      if (['/owner/activate','/owner/deactivate','/owner/notify'].includes(req.url)) {
+        if ([...fields.keys()].some(k=>k!=='csrf')) return reply(400,'Invalid fields');
+        const action={'/owner/activate':'activate','/owner/deactivate':'deactivate','/owner/notify':'notify'}[req.url];
+        if (!await pairing[action]?.()) return reply(409,'Owner operation unavailable');
+        return reply(303,'',{Location:'/owner'});
+      }
       if (req.url === '/owner/stop') { await pairing.stop(); return reply(303, '', { Location: '/owner' }); }
       if (!pairing.snapshot().pairingAllowed || pairing.snapshot().active) return reply(409, 'Pairing unavailable or already active');
       if (now() - lastStart < 10000) return reply(429, 'Wait before another attempt', { 'Retry-After': '10' });

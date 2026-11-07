@@ -38,14 +38,14 @@ export function createWebPairing({ run, enabled = true, now = Date.now, timeoutM
     async close() { closing = true; cancelled = true; clear(); clearTimeout(timer); await handle?.stop(); }
   };
 }
-export async function liveWebPairing({ env = process.env, mode, phone, status, renderQR, renderCode, clear }) {
+export async function liveWebPairing({ env = process.env, mode, phone, status, renderQR, renderCode, clear, allowCreate = false, newSession = false }) {
   const [{ openAuthStore }, { createPairing }, { default: QRCode },
     { default: makeSocket, DisconnectReason }, { default: pino }] = await Promise.all([
       import('./auth-store.js'), import('./pairing.js'), import('qrcode'),
       import('@whiskeysockets/baileys'), import('pino')
     ]);
   let pairing, lost = false;
-  const storage = await openAuthStore({ env, onLost: () => { lost = true; void pairing?.failStorage(); } });
+  const storage = await openAuthStore({ env, allowCreate, newSession, onLost: () => { lost = true; void pairing?.failStorage(); } });
   try {
     if (lost) throw new Error('AUTH_SESSION_LOST');
     pairing = createPairing({ makeSocket: options => { storage.assertActive(); return makeSocket(options); }, auth: storage.state, saveCreds: storage.saveCreds, status, clearQR: clear,

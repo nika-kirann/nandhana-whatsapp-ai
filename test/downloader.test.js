@@ -33,8 +33,8 @@ function botFixture(t, options = {}) {
   t.after(() => bot.close());
   return { bot, sends, mediaSends, calls, logs, cleaned: () => cleaned, start: () => bot.handle(message('/start')) };
 }
-test('disabled Nandhana config needs no AI settings', () => { assert.equal(readConfig({}).name, 'Nandhana'); assert.equal(readConfig({}).enabled, false); assert.equal(readConfig({ BOT_ENABLED: 'true', ALLOWED_CHATS: '123@lid' }).enabled, true); });
-test('activation requires allowlist and validated limits', () => { for (const env of [{ BOT_ENABLED: 'true' }, { MAX_MEDIA_BYTES: '90000000' }, { DOWNLOAD_TIMEOUT_MS: '-1' }, { ALLOWED_CHATS: '1@g.us' }]) assert.throws(() => readConfig(env)); });
+test('disabled Nandhana config needs no AI settings', () => { assert.equal(readConfig({}).name, 'Nandhana'); assert.equal(readConfig({}).enabled, false); assert.equal(readConfig({ ALLOWED_CHATS: '123@lid' },{activated:true}).enabled, true); });
+test('activation requires allowlist and validated limits', () => { for (const env of [{}, { MAX_MEDIA_BYTES: '90000000' }, { DOWNLOAD_TIMEOUT_MS: '-1' }, { ALLOWED_CHATS: '1@g.us' }]) assert.throws(() => readConfig(env,{activated:true})); });
 test('accept numeric Pin and shortlink URLs', () => { for (const url of [pin, 'https://pinterest.com/pin/123', 'https://pin.it/Abc123?utm=x']) assert.ok(validateUrl(url)); });
 for (const url of ['http://pinterest.com/pin/123/', 'https://pinterest.com.evil.test/pin/123/', 'https://user:pass@pinterest.com/pin/123/', 'https://pinterest.com:8443/pin/123/', 'https://127.0.0.1/pin/123/', 'https://pinterest.com/board/', 'https://pinterest.com/pin/abc/', 'https://pin.it/a/b', 'https://pinterest.com/pin/123/#x', pin + '\n', pin + ' ' + pin]) {
   test(`reject unsafe input ${JSON.stringify(url)}`, () => assert.throws(() => validateUrl(url)));
@@ -117,7 +117,7 @@ test('same-chat serialization, shutdown suppression and cleanup', async t => {
   const f=botFixture(t,{downloader:{download:async()=>{started();await gate;return {type:'video',path:'mock',cleanup:async()=>cleaned++};}}});await f.start();const pending=f.bot.handle(message(pin));await begin;const close=f.bot.close();release();await Promise.all([pending,close]);assert.equal(f.mediaSends.length,0);assert.equal(cleaned,1);
 });
 test('fixed bilingual responses have no AI identity or chat capability', () => { assert.match(copy('Nandhana','help'),/Pinterest/);assert.match(copy('Nandhana','help'),/[\u0d00-\u0d7f]/); });
-test('disabled entrypoint creates no auth and needs no provider', async () => { const { execFileSync }=await import('node:child_process');const { existsSync }=await import('node:fs');const hadAuth=existsSync('auth');assert.match(execFileSync(process.execPath,['src/main.js'],{env:{PATH:process.env.PATH,BOT_ENABLED:'false'},encoding:'utf8'}),/Bot disabled/);assert.equal(existsSync('auth'),hadAuth); });
+test('disabled entrypoint creates no auth and needs no provider', async () => { const { execFileSync }=await import('node:child_process');const { existsSync }=await import('node:fs');const hadAuth=existsSync('auth');assert.match(execFileSync(process.execPath,['src/main.js'],{env:{PATH:process.env.PATH},encoding:'utf8'}),/Downloader idle/);assert.equal(existsSync('auth'),hadAuth); });
 
 test('successful video passes video attachment type and cleanup', async t => {
   let cleaned=0;const f=botFixture(t,{downloader:{download:async()=>({type:'video',path:'mock',cleanup:async()=>cleaned++})}});await f.start();await f.bot.handle(message(pin));assert.deepEqual(f.mediaSends,['video']);assert.equal(cleaned,1);
@@ -140,10 +140,10 @@ test('consent TTL and max chat count remain bounded', async t => {
 });
 test('failed streamed download leaves no new temporary directories', async () => {
   const {readdir}=await import('node:fs/promises');const {tmpdir}=await import('node:os');
-  const before=new Set((await readdir(tmpdir())).filter(x=>x.startsWith('nandhana-')));
+  const before=new Set((await readdir(tmpdir())).filter(x=>/^nandhana-[A-Za-z0-9]{6}$/.test(x)));
   const f=transportFor((url,n)=>n===1?response(imagePage,{'content-type':'text/html'}):response(Buffer.alloc(101),{'content-type':'image/jpeg'}));
   await assert.rejects(createDownloader({maxMedia:100},f.transport).download(pin));
-  const after=(await readdir(tmpdir())).filter(x=>x.startsWith('nandhana-')&&!before.has(x));assert.deepEqual(after,[]);
+  const after=(await readdir(tmpdir())).filter(x=>/^nandhana-[A-Za-z0-9]{6}$/.test(x)&&!before.has(x));assert.deepEqual(after,[]);
 });
 test('global pending queue is capped at one hundred', async t => {
   const ids=Array.from({length:105},(_,i)=>`${1000+i}@lid`);const f=botFixture(t,{config:{allowedChats:new Set(ids),maxChats:200}});

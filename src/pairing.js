@@ -62,6 +62,7 @@ export function createPairing({ makeSocket, auth, saveCreds, renderQR, clearQR,
         }
         if (update.connection === 'open') {
           if (!hasLinkedIdentity(auth.creds)) { await finish('auth_identity_missing'); return; }
+          saves=saves.then(saveCreds);
           await finish('paired');
         }
         if (update.connection === 'close') {

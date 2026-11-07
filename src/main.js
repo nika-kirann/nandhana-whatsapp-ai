@@ -8,14 +8,14 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // No network imports, auth creation or WhatsApp activity until explicit activation.
-export async function main() {
-  const config = readConfig();
-  if (!config.enabled) { console.info('Bot disabled. Review README before activation.'); return; }
+export async function main({ env = process.env, ownerApproved = false, onConnection = () => {}, onStopped = () => {} } = {}) {
+  const config = readConfig(env, { activated: ownerApproved });
+  if (!config.enabled) { console.info('Downloader idle. Start only from the protected owner page.'); return; }
   const [{ default: makeWASocket }, { default: pino }] = await Promise.all([
     import('@whiskeysockets/baileys'), import('pino')
   ]);
   let socket, shuttingDown = false, lost = false, stopOnLoss = () => {};
-  const storage = await openAuthStore({ onLost: () => { lost = true; if (socket) void stopOnLoss(); } });
+  const storage = await openAuthStore({ env, onLost: () => { lost = true; if (socket) void stopOnLoss(); } });
   try {
     stopOnLoss = shutdown;
     const { state, saveCreds } = storage;
@@ -49,22 +49,25 @@ export async function main() {
     });
     socket.ev.on('connection.update', ({ connection, qr }) => {
       if (qr) { console.warn('linking_required'); void shutdown(); }
-      if (connection === 'open') console.info('whatsapp_connected');
+      if (connection === 'open' && !shuttingDown) { console.info('whatsapp_connected'); onConnection(); }
       if (connection === 'close' && !shuttingDown) { console.warn('whatsapp_disconnected'); void shutdown(); }
     });
-    async function shutdown() {
-      if (shuttingDown) return;
-      shuttingDown = true;
-      // Do not log out: preserve the registered linked-device session.
-      socket.end(undefined);
-      const deadline = setTimeout(() => process.exit(1), 10000);
-      deadline.unref();
-      await handler.close();
-      await saveChain;
-      try { await storage.close(); } finally { clearTimeout(deadline); }
+    const signalStop=()=>void shutdown();
+    let shutdownTask;
+    function shutdown() {
+      if (shutdownTask) return shutdownTask;
+      shuttingDown=true;
+      process.removeListener('SIGINT',signalStop);process.removeListener('SIGTERM',signalStop);
+      shutdownTask=(async()=>{
+        try { socket?.end(undefined); } catch {}
+        const deadline=setTimeout(()=>process.exit(1),10000);deadline.unref();
+        try { await handler.close();await saveChain; }
+        finally { try { await storage.close(); } finally { clearTimeout(deadline);onStopped(); } }
+      })();
+      return shutdownTask;
     }
-    process.once('SIGINT', () => void shutdown());
-    process.once('SIGTERM', () => void shutdown());
+    process.once('SIGINT', signalStop);
+    process.once('SIGTERM', signalStop);
     return { stop: shutdown };
   } catch (error) { await storage.close(); throw error; }
 }

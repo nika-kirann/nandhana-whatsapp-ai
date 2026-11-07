@@ -138,7 +138,7 @@ test('cancel while transport factory loading stops socket before any secret rend
 test('disabled pairing never imports/runs transport or activates bot', async t => {
   const h = harness({ enabled: false }); const api = await setup(t, h.manager);
   assert.equal((await api.post('/owner/start', { mode: 'qr' })).status, 409); assert.equal(h.starts, 0);
-  assert.match((await api.request('/owner')).body, /Downloader mode/);
+  assert.match((await api.request('/owner')).body, /Stop the downloader/);
 });
 test('explicit stop is CSRF-protected and successful pairing never starts another socket', async t => {
   const h = harness(); const api = await setup(t, h.manager); await api.post('/owner/start', { mode: 'qr' });
@@ -174,7 +174,7 @@ test('disabled web entrypoint serves health without auth files or WhatsApp start
   const dir = await mkdtemp(join(tmpdir(),'nandhana-web-offline-')); t.after(() => rm(dir,{recursive:true,force:true}));
   const probe = http.createServer(); await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve)); const port=probe.address().port; await new Promise(resolve=>probe.close(resolve));
   const child = spawn(process.execPath, [fileURLToPath(new URL('../src/web-main.js',import.meta.url))], {
-    cwd: dir, env: { ...process.env, ...fixtureEnv, PORT:String(port), BOT_ENABLED:'false', AUTH_DIR:'auth' }, stdio:['ignore','ignore','pipe']
+    cwd: dir, env: { PATH:process.env.PATH, ...fixtureEnv, PORT:String(port),  AUTH_DIR:'auth' }, stdio:['ignore','ignore','pipe']
   });
   let privateError=''; child.stderr.on('data', chunk=>{privateError+=chunk});
   t.after(()=>{ if (child.exitCode===null) child.kill('SIGTERM'); });
@@ -222,12 +222,12 @@ test('minimal owner screen is responsive, accessible and self-contained', async 
   assert.doesNotMatch(page.body, /class="code"|class="qr"/);
 });
 
-test('npm run start serves health in disabled Postgres mode without connecting or creating auth',async t=>{
+test('npm run start serves health in idle mode without connecting or creating auth',async t=>{
  const dir=await mkdtemp(join(tmpdir(),'nandhana-postgres-start-'));t.after(()=>rm(dir,{recursive:true,force:true}));
  const probe=http.createServer();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
  const entry=fileURLToPath(new URL('../src/web-main.js',import.meta.url));
  await writeFile(join(dir,'package.json'),JSON.stringify({name:'nandhana-isolated-start-test',version:'0.0.0',scripts:{start:`node --env-file-if-exists=.env ${entry}`}}));
- const child=spawn('npm',['run','start'],{cwd:dir,detached:true,env:{PATH:process.env.PATH,...fixtureEnv,PORT:String(port),BOT_ENABLED:'false',AUTH_STORE:'postgres',SESSION_ID:'synthetic-start',AUTH_ENCRYPTION_KEY:'ab'.repeat(32),DATABASE_URL:'postgres://synthetic:fixture@127.0.0.1:1/synthetic?sslmode=require',AUTH_DIR:join(dir,'untouched-auth')},stdio:['ignore','pipe','pipe']});
+ const child=spawn('npm',['run','start'],{cwd:dir,detached:true,env:{PATH:process.env.PATH,...fixtureEnv,PORT:String(port),AUTH_DIR:'auth'},stdio:['ignore','pipe','pipe']});
  let logs='';child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b);
  t.after(()=>{try{process.kill(-child.pid,'SIGTERM')}catch{}});
  let response;
@@ -235,6 +235,21 @@ test('npm run start serves health in disabled Postgres mode without connecting o
   try{response=await new Promise((resolve,reject)=>{const req=http.get({hostname:'127.0.0.1',port,path:'/healthz'},res=>{res.resume();res.on('end',()=>resolve(res.statusCode))});req.on('error',reject)});break}catch{await new Promise(resolve=>setTimeout(resolve,10))}
  }
  assert.equal(response,200);assert.doesNotMatch(logs,/startup refused|fixture@|encryption/i);
- await assert.rejects(stat(join(dir,'untouched-auth')),{code:'ENOENT'});
+ await assert.rejects(stat(join(dir,'auth')),{code:'ENOENT'});
  const exited=once(child,'exit');process.kill(-child.pid,'SIGTERM');await exited;
+});
+
+test('owner activation, stop and notice actions require authentication, exact origin and CSRF',async t=>{
+ const h=harness();let activated=0,notified=0,stopped=0;
+ const manager={...h.manager,activate:async()=>{activated++;return true;},deactivate:async()=>{stopped++;return true;},notify:async()=>{notified++;return true;}};
+ const api=await setup(t,manager);
+ for(const action of ['activate','deactivate','notify']){
+  const path='/owner/'+action;
+  assert.equal((await api.request(path,{auth:false,method:'POST'})).status,401);
+  assert.equal((await api.post(path,{}, {headers:{origin:'null'}})).status,403);
+  assert.equal((await api.post(path,{csrf:'stale'})).status,403);
+  assert.equal((await api.post(path,{phone:'123'})).status,400);
+  assert.equal((await api.post(path)).status,303);
+ }
+ assert.equal(activated,1);assert.equal(notified,1);assert.equal(stopped,1);
 });

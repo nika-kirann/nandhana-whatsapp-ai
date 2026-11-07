@@ -16,7 +16,7 @@ test('QR material only goes to renderer; status has no secrets; no message liste
   const f=fixture(t);await tick();f.sockets[0].ev.emit('connection.update',{qr:'mock-secret-not-a-real-qr'});await tick();assert.equal(f.rendered.length,1);assert.equal(f.states.at(-1).state,'waiting_scan');assert.ok(!JSON.stringify(f.states).includes('mock-secret'));assert.deepEqual(f.sockets[0].ev.eventNames().sort(),['connection.update','creds.update']);
 });
 test('successful pairing saves auth then closes and removes QR',async t=>{
-  const f=fixture(t);await tick();f.auth.creds.me={id:'fixture-identity'};f.sockets[0].ev.emit('creds.update',{});f.sockets[0].ev.emit('connection.update',{connection:'open'});assert.equal(await f.pairing.done,'paired');assert.equal(f.saved(),1);assert.equal(f.cleared(),1);
+  const f=fixture(t);await tick();f.auth.creds.me={id:'fixture-identity'};f.sockets[0].ev.emit('creds.update',{});f.sockets[0].ev.emit('connection.update',{connection:'open'});assert.equal(await f.pairing.done,'paired');assert.equal(f.saved(),2);assert.equal(f.cleared(),1);
 });
 test('only one required post-scan restart permitted, no reconnect loop',async t=>{
   const f=fixture(t);await tick();f.auth.creds.me={id:'fixture-identity'};
@@ -38,8 +38,8 @@ test('pair CLI refuses missing explicit approval before importing WhatsApp or cr
   const {spawnSync}=await import('node:child_process');const {existsSync}=await import('node:fs');
   const child=spawnSync(process.execPath,['src/pair-cli.js'],{env:{PATH:process.env.PATH},encoding:'utf8'});assert.equal(child.status,1);assert.equal(child.stdout,'');assert.equal(child.stderr,'');
 });
-test('pair CLI refuses bot-enabled state',async()=>{
-  const {spawnSync}=await import('node:child_process');const child=spawnSync(process.execPath,['src/pair-cli.js','--owner-approved'],{env:{PATH:process.env.PATH,BOT_ENABLED:'true'},encoding:'utf8'});assert.equal(child.status,1);assert.equal(child.stdout,'');assert.equal(child.stderr,'');
+test('pair CLI requires explicit owner approval',async()=>{
+  const {spawnSync}=await import('node:child_process');const child=spawnSync(process.execPath,['src/pair-cli.js'],{env:{PATH:process.env.PATH},encoding:'utf8'});assert.equal(child.status,1);assert.equal(child.stdout,'');assert.equal(child.stderr,'');
 });
 
 test('QR identity is valid even when registered remains false; flag alone is insufficient',()=>{

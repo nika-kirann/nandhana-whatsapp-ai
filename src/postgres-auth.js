@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { createAuthCipher } from './auth-crypto.js';
 // Transaction-scoped row locking + monotonically increasing fencing works through PgBouncer.
 export async function openPostgresAuth({ pool, sessionId, key, codec, initCreds, fromAppState,
-  onLost = () => {}, leaseMs = 30000, renewMs = 5000, now = () => performance.now() }) {
+  onLost = () => {}, allowCreate = false, newSession = false, leaseMs = 30000, renewMs = 5000, now = () => performance.now() }) {
   const owner = randomUUID(), ownKey = Buffer.from(key), cipher = createAuthCipher(ownKey, sessionId, codec);
   let fence, active = true, closing = false, deadline = 0, timer, queue = Promise.resolve();
   const safeError = () => new Error('AUTH_DATABASE_UNAVAILABLE_OR_SESSION_LOST');
@@ -63,7 +63,11 @@ export async function openPostgresAuth({ pool, sessionId, key, codec, initCreds,
   try {
     const version = await boundedQuery('SELECT version FROM nandhana_auth_schema WHERE version=1');
     if (version.rowCount !== 1) throw safeError();
-    await boundedQuery('INSERT INTO nandhana_auth_sessions(session_id) VALUES($1) ON CONFLICT DO NOTHING', [sessionId]);
+    if (!sessionId) throw safeError();
+    if (allowCreate) {
+      const inserted=await boundedQuery('INSERT INTO nandhana_auth_sessions(session_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING session_id',[sessionId]);
+      if (newSession && inserted.rowCount!==1) throw safeError();
+    }
     const started = now();
     const claim = await boundedQuery("UPDATE nandhana_auth_sessions SET owner=$2, fence=fence+1, lease_until=clock_timestamp()+($3 * interval '1 millisecond') WHERE session_id=$1 AND lease_until<=clock_timestamp() RETURNING fence,initialized", [sessionId,owner,leaseMs]);
     if (claim.rowCount !== 1) throw safeError();
@@ -74,6 +78,7 @@ export async function openPostgresAuth({ pool, sessionId, key, codec, initCreds,
         if (records.rowCount !== 1) throw safeError();
         return cipher.decrypt(records.rows[0].envelope, 'creds', 'default');
       }
+      if (!allowCreate) throw safeError();
       const existing = await client.query('SELECT 1 FROM nandhana_auth_records WHERE session_id=$1 LIMIT 1',[sessionId]);
       if (existing.rowCount) throw safeError();
       const initial = initCreds(); await put(client,'creds','default',cipher.encrypt(initial,'creds','default'));
@@ -116,6 +121,13 @@ export async function openPostgresAuth({ pool, sessionId, key, codec, initCreds,
         }
       } },
       saveCreds() { const envelope=cipher.encrypt(creds,'creds','default'); return serial(client => put(client,'creds','default',envelope)); },
+      async claimNotice() { return serial(async client => {
+        const prior=await client.query("SELECT envelope FROM nandhana_auth_records WHERE session_id=$1 AND kind='meta' AND key_id='self-notice'",[sessionId]);
+        if (prior.rowCount) return { claimed:false, status:cipher.decrypt(prior.rows[0].envelope,'meta','self-notice').status };
+        await put(client,'meta','self-notice',cipher.encrypt({status:'attempting'},'meta','self-notice'));
+        return {claimed:true,status:'attempting'};
+      }); },
+      async finishNotice(status) { if (!['sent','failed','unknown'].includes(status)) throw safeError(); return serial(client=>put(client,'meta','self-notice',cipher.encrypt({status},'meta','self-notice'))); },
       assertActive, guard: () => serial(async () => {}), close
     };
   } catch { lose(); await close(); throw safeError(); }

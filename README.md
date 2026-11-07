@@ -6,6 +6,108 @@ history remains in the current source. The repository URL/name stays unchanged.
 
 **Disabled by default. Not deployed, linked, or verified end-to-end with WhatsApp.**
 
+## Koyeb **Free Web Service**: read this first
+
+The protected web screen is ready for a **later owner deployment**; no deployment or
+new live pairing was performed for this change. It is for supervised linking, not a
+promise of a reliable free always-on WhatsApp bot.
+
+- Free provides **512 MB RAM, 0.1 vCPU, 2 GB SSD**, one free instance/organization;
+  Web Services only, Frankfurt or Washington DC. It sleeps after **1 hour without
+  incoming traffic**; sleep cannot be disabled/customized. WhatsApp is offline while
+  the service sleeps. An outbound WhatsApp socket is not documented as inbound traffic.
+- Internet requests to `/healthz` are ordinary inbound HTTP under Koyeb's general idle
+  rules and may affect inactivity/wake the service. Internal health checks are not a
+  documented keepalive mechanism. **No UptimeRobot/24×7 uptime guarantee** is made here.
+- Free instances **cannot use persistent Volumes**. Local `/data/auth` is ephemeral:
+  reschedule/redeploy may lose the linked session; Koyeb says local data can disappear
+  at any moment, including automatic upgrades at least weekly. Re-pairing may be needed.
+- Changing environment settings (including later enabling the downloader) can redeploy
+  and lose auth on Free. **This implementation does not solve free-tier durable sessions
+  or guarantee pairing survives the transition to downloader mode.** A separately
+  reviewed durable auth backend/hosting arrangement is needed for reliable operation.
+  No paid tier, external secret upload, or additional resource has been selected.
+- Single replica/process only. Free's low CPU/memory and cold starts have not been load
+  tested with this app; Koyeb itself says Free is not for production.
+
+### Beginner deployment steps (you perform these; nothing deployed by this change)
+
+1. Connect this private GitHub repository in Koyeb, choose **Web Service → Free** and
+   Dockerfile build. Select **`feat/nandhana-chatbot`** while PR #1 is unmerged: `main`
+   is only the bootstrap. Do not accidentally select a paid instance.
+2. Expose HTTP port **8000**, route `/`, health check **HTTP `/healthz`**. The container
+   listens on `0.0.0.0` and honors `PORT` (default 8000). Use the generated HTTPS domain.
+3. Set `BOT_ENABLED=false`, `AUTH_DIR=/data/auth`, `PORT=8000`,
+   `PUBLIC_ORIGIN=https://YOUR-SERVICE.koyeb.app` (exact origin, no path),
+   `WEB_OWNER_USERNAME` (letters/digits/underscore/hyphen), and **secret**
+   `WEB_OWNER_PASSWORD` in Koyeb's secret settings. Choose your own unique random
+   password, at least 24 characters, 3 character classes and 10 distinct characters;
+   32+ is recommended. No password/token is supplied in this repository.
+   If the generated domain is only known after creation, set the origin then redeploy;
+   missing/invalid owner settings intentionally refuse startup. Never place credentials
+   in the domain, query string, Git, screenshots or deployment logs.
+4. Open **`https://YOUR-SERVICE.koyeb.app/owner`**, sign in using browser Basic Auth,
+   select QR or Phone code, and explicitly press **Start one pairing attempt**.
+   Phone-code mode accepts your number only in this protected HTTPS form, digits with
+   country code (no `+`). It is not logged or saved in a separate phone input file.
+   On your phone use WhatsApp → Linked devices → Link a device (scan QR), or
+   **Link with phone number instead** (enter the privately displayed code).
+5. Watch authenticated status: `paired` requires actual socket-open and saved identity.
+   Each attempt is at most 180 seconds/six QR emissions; a single documented post-scan
+   restart is allowed. No network-error retries. Failures need a separate explicit
+   owner action, not a session reset; existing keys are never deleted automatically.
+6. **Pairing never activates the downloader.** Keep `BOT_ENABLED=false` until a separate
+   decision to activate. For later downloader operation use the **same** auth directory,
+   explicit `BOT_ENABLED=true` and `ALLOWED_CHATS`; senders still need `/start` consent.
+   `npm run web` serves health/owner status in either mode, but refuses pairing actions
+   in downloader mode. Do not run `npm start` or `npm run pair` beside it.
+   On Free the activation redeploy may lose auth (see warning above), so it is not a
+   guaranteed working activation path. No in-browser control silently enables sending.
+
+### Web privacy and operational boundaries
+
+- `npm run web` (Docker default) serves generic public `/` and `/healthz`; neither
+  exposes session/bot connection state. HTTP health only means the web server responds,
+  **not** that WhatsApp is linked. No socket starts at disabled web startup.
+- Every `/owner` route, private QR PNG and generic owner status requires authentication.
+  QR/code stay in memory, delivered only to the owner with `no-store`; no public file
+  server, `.pairing`/auth-directory browsing, query-string secrets or request logging.
+  UI polls every 3 seconds while active and clears material on terminal states; a
+  nonce-authorized browser timer clears it by the deadline even if the server disappears.
+  Never scan/use stale material or screenshots; close the owner tab after linking.
+- Explicit POST actions require exact `Origin`, canonical Host, session-bound CSRF token,
+  Secure/HttpOnly/SameSite=Strict cookie and bounded input. No GET starts a pairing attempt.
+  Strong required Basic credentials use timing-safe hashed comparison. CSP, anti-frame,
+  HSTS and no-referrer headers apply. Koyeb's HTTPS proxy must be the only public entry:
+  `X-Forwarded-Proto` is trusted solely for that proxy hop; never expose the plain Node
+  port directly or allow untrusted clients to spoof proxy headers.
+- Authentication failures and owner traffic are bounded/rate-limited by direct peer,
+  ignoring spoofable forwarded IPs. A shared proxy can cause owner lockout for 10 minutes
+  after 5 failures/300 requests; this conservative guard is not a WAF or DDoS solution.
+  Browser Basic credentials can remain cached until the browser closes. Do not use a
+  shared browser profile. Rotate owner credentials through deployment secrets if exposed.
+- Web linking reuses the auth-only lifecycle: no chat/inbox/history/send handlers.
+  New auth files are owner-only; multi-file Baileys auth is still a prototype store.
+  Shared `.session.lock` prevents CLI/web/downloader overlap on the same directory.
+  SIGTERM releases it; after a hard crash a stale lock intentionally refuses startup.
+  Only after verifying **all** session users are stopped may the operator remove that
+  lock file (never auth keys). Multiple replicas, rolling overlap, symlinked auth paths
+  or concurrent filesystem modification are unsupported. Persistent-volume ownership
+  would need to permit the container's non-root `node` user; Free has no volume support.
+- Docker's explicit allowlist copies only package manifests/source, not `.env`, auth,
+  `.pairing`, Git, tests or private files. `npm ci --ignore-scripts` uses locked packages;
+  the public libsignal Git dependency is fetched over HTTPS without Git credentials.
+  Docker build/Koyeb proxy/live pairing were not integration-tested here.
+
+Official Koyeb sources (checked for this change):
+[Free instances](https://www.koyeb.com/docs/reference/instances),
+[idle/sleep rules](https://www.koyeb.com/docs/run-and-scale/scale-to-zero),
+[ephemeral local storage](https://www.koyeb.com/docs/reference/storage),
+[Volumes](https://www.koyeb.com/docs/reference/volumes),
+[PORT/routes](https://www.koyeb.com/docs/build-and-deploy/exposing-your-service),
+[health checks](https://www.koyeb.com/docs/run-and-scale/health-checks),
+[Git deployment](https://www.koyeb.com/docs/build-and-deploy/deploy-with-git).
+
 ## What it supports
 
 After `/start`, send exactly one HTTPS public Pin URL:
@@ -67,7 +169,7 @@ Package installation contacts registry/Git hosts; tests/syntax checks are offlin
 ## Future activation — manual and owner-approved only
 
 1. Review terms, download rights, privacy, host/network access and the limitations below.
-2. Complete the **supervised QR-only pairing command** described below. The main bot
+2. Complete the **supervised QR or phone-code pairing workflow** described below. The main bot
    still refuses unregistered-session startup. Keep registered credentials in ignored `./auth` with owner-only permissions;
    custom `AUTH_DIR` must be outside this project. Never share session files or OTPs.
 3. Set local `.env`: `ALLOWED_CHATS` to exact direct-chat JIDs (`digits@s.whatsapp.net`
@@ -128,11 +230,13 @@ have their own retention policies; reset/stop do not delete their records.
 - `src/pinterest.js`: schema/OG parser, capped HTML/media consumption, signatures/cleanup.
 - `src/handler.js`: opt-in, commands, serialization/rate/resource limits, attachment flow.
 - `src/main.js`: lazy Baileys adapter, restricted local auth, fresh events, shutdown.
+- `src/web-*.js`: strict web config, protected owner HTTP UI, in-memory auth-only lifecycle.
+- `src/auth-lock.js`: exclusive auth-directory ownership across CLI/web/downloader.
 
 ## Verification — distinguish fixtures from live access
 
-Verified with Node 22.23.4: **68/68 offline tests passed**, syntax checks passed for
-**12 JavaScript files**, clean locked installation with scripts disabled succeeded,
+Verified with Node 22.23.4: **91/91 offline tests passed**, syntax checks passed for
+**18 JavaScript files**, clean locked installation with scripts disabled succeeded,
 and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
 Audit results are not a security guarantee.
 

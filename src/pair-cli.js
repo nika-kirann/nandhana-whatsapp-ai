@@ -2,6 +2,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, chmod, writeFile, rename, rm, lstat, open } from 'node:fs/promises';
 import { createPairing, hasLinkedIdentity } from './pairing.js';
+import { acquireAuthLock } from './auth-lock.js';
 import { readPrivatePhone } from './private-phone.js';
 
 export function resolvePairAuthDir(env = process.env, cwd = process.cwd()) {
@@ -51,7 +52,9 @@ export async function runPairCLI() {
   try { lock = await open(lockPath, 'wx', 0o600); } catch { process.exitCode = 1; return; }
   await lock.writeFile(String(process.pid));
   await clearQR(); await status('preparing');
+  let releaseAuth;
   try {
+    releaseAuth = await acquireAuthLock(authDir);
     let phoneNumber;
     if (codeMode) {
       try { phoneNumber = await readPrivatePhone(join(viewDir, 'phone.txt')); }
@@ -78,7 +81,7 @@ export async function runPairCLI() {
     if (result !== 'paired') process.exitCode = 1;
   } catch {
     await clearQR(); await status('startup_failed'); process.exitCode = 1;
-  } finally { await lock.close(); await rm(lockPath, { force: true }); }
+  } finally { await releaseAuth?.(); await lock.close(); await rm(lockPath, { force: true }); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   runPairCLI().catch(() => { process.exitCode = 1; });

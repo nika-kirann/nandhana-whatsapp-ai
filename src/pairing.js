@@ -9,8 +9,8 @@ export function pairSocketOptions(auth, logger) {
     defaultQueryTimeoutMs: 20000, keepAliveIntervalMs: 15000 };
 }
 export function createPairing({ makeSocket, auth, saveCreds, renderQR, clearQR,
-  status, logger, restartCode = 515, timeoutMs = 180000, maxQRs = 6 }) {
-  let socket, ended = false, restarts = 0, qrCount = 0;
+  status, logger, requestCode, renderCode, restartCode = 515, timeoutMs = 180000, maxQRs = 6 }) {
+  let socket, ended = false, restarts = 0, qrCount = 0, codeRequested = false;
   let tasks = Promise.resolve(), saves = Promise.resolve(), rendering = Promise.resolve();
   let resolveDone;
   const done = new Promise(resolve => { resolveDone = resolve; });
@@ -43,11 +43,22 @@ export function createPairing({ makeSocket, auth, saveCreds, renderQR, clearQR,
       tasks = tasks.then(async () => {
         if (ended) return;
         if (update.qr) {
-          if (++qrCount > maxQRs) { await finish('qr_limit'); return; }
-          rendering = renderQR(update.qr);
-          await rendering;
-          if (ended) return;
-          await status('waiting_scan');
+          if (requestCode) {
+            if (!codeRequested) {
+              codeRequested = true;
+              // Documented readiness trigger; one request only, never render the QR.
+              rendering = requestCode(socket).then(renderCode);
+              await rendering;
+              if (ended) return;
+              await status('waiting_phone_code');
+            }
+          } else {
+            if (++qrCount > maxQRs) { await finish('qr_limit'); return; }
+            rendering = renderQR(update.qr);
+            await rendering;
+            if (ended) return;
+            await status('waiting_scan');
+          }
         }
         if (update.connection === 'open') {
           if (!hasLinkedIdentity(auth.creds)) { await finish('auth_identity_missing'); return; }

@@ -131,8 +131,8 @@ have their own retention policies; reset/stop do not delete their records.
 
 ## Verification — distinguish fixtures from live access
 
-Verified with Node 22.23.4: **65/65 offline tests passed**, syntax checks passed for
-**11 JavaScript files**, clean locked installation with scripts disabled succeeded,
+Verified with Node 22.23.4: **68/68 offline tests passed**, syntax checks passed for
+**12 JavaScript files**, clean locked installation with scripts disabled succeeded,
 and `npm audit` reported **0 known vulnerabilities** for the lockfile at inspection.
 Audit results are not a security guarantee.
 
@@ -212,3 +212,36 @@ can use a newly created private directory outside the repository while retaining
 session directories unchanged. Store this path only in ignored local `.env`, keep
 `BOT_ENABLED=false`, and never run multiple attempts concurrently. Changing session
 paths does not revoke an old linked device; review Linked devices on the phone separately.
+
+## Optional phone-number linking code (prepare only until owner supplies number)
+
+Documented method: https://baileys.wiki/authentication/pairing-code . Pinned Baileys
+6.7.24 exposes `socket.requestPairingCode(phoneNumber)`. It must be invoked after the
+first QR readiness event, not immediately at socket construction. Code mode suppresses
+QR rendering and makes **at most one code request**, without error retries.
+
+The owner must supply their WhatsApp number through the supervised private input flow.
+Never put a real phone number in a command argument, source, test, terminal output, PR,
+or chat. The approved input mechanism is `.pairing/phone.txt`: a regular non-symlink,
+single-link, owner-owned file with permissions **0600**, at most 32 bytes, containing
+country code + number as 8–15 digits without `+`, spaces or punctuation. This ignored
+private file must be populated only through the authorized private input mechanism.
+Do not run the command until the owner has supplied the number; a missing/invalid file
+results in generic `phone_input_required` **before any WhatsApp connection**.
+
+```sh
+npm run pair -- --owner-approved --phone-code
+```
+
+No phone value is present in that command. The returned private 8-character code is
+shown **only** on the same private refreshing `.pairing/index.html` screen, never in
+status JSON, stdout/stderr, chat or a public URL. Parent/assistant must not read/screenshot
+that page into context. Owner selects WhatsApp → Linked devices → Link a device →
+Link with phone number instead, then enters the private displayed code. Do not share it.
+A code request can trigger a WhatsApp linking notification; it is an authentication
+operation, not permission to send chat messages. This option has only offline mock tests
+until the owner explicitly provides their phone and a live request is authorized.
+
+The phone-input file remains private locally; securely remove it after linking via the
+owner-approved cleanup workflow. Do not delete session directories. All auth-only guards,
+180-second deadline, one post-scan restart and bot-disabled behavior still apply.

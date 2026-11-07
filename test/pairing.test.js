@@ -68,3 +68,30 @@ test('pairing refuses custom auth directory inside tracked project paths',async(
   assert.throws(()=>resolvePairAuthDir({AUTH_DIR:'src'},'/project'));
   assert.throws(()=>resolvePairAuthDir({AUTH_DIR:'.'},'/project'));
 });
+
+test('phone-code mode waits for QR readiness, requests once, never renders QR',async t=>{
+  let requests=0,codes=0;
+  const f=fixture(t,{requestCode:async()=>{requests++;return 'MOCKCODE';},renderCode:async()=>codes++});await tick();assert.equal(requests,0);
+  f.sockets[0].ev.emit('connection.update',{connection:'connecting'});await tick();assert.equal(requests,0);
+  f.sockets[0].ev.emit('connection.update',{qr:'hidden-qr'});await tick();
+  f.sockets[0].ev.emit('connection.update',{qr:'rotated-hidden-qr'});await tick();
+  assert.equal(requests,1);assert.equal(codes,1);assert.equal(f.rendered.length,0);assert.equal(f.states.at(-1).state,'waiting_phone_code');
+  assert.ok(!JSON.stringify(f.states).includes('MOCKCODE'));
+});
+test('phone-code API error stops without retry or raw errors',async t=>{
+  let requests=0;const f=fixture(t,{requestCode:async()=>{requests++;throw new Error('private-input');},renderCode:async()=>{}});await tick();
+  f.sockets[0].ev.emit('connection.update',{qr:'hidden'});assert.equal(await f.pairing.done,'pairing_failed');assert.equal(requests,1);assert.ok(!JSON.stringify(f.states).includes('private-input'));
+});
+test('private phone reader rejects unsafe permissions, symlinks and malformed numbers',async()=>{
+  const {readPrivatePhone,validatePhone}=await import('../src/private-phone.js');
+  const {mkdtemp,writeFile,chmod,symlink,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+  for(const value of ['+12345678','123 45678','00000000','abc','123'])assert.throws(()=>validatePhone(value));
+  const dir=await mkdtemp(join(tmpdir(),'nandhana-phone-test-'));const path=join(dir,'phone');
+  try {
+    // Fictional reserved example used only in offline file-validation test.
+    await writeFile(path,'12025550123',{mode:0o600});assert.equal(await readPrivatePhone(path),'12025550123');
+    await chmod(path,0o644);await assert.rejects(readPrivatePhone(path));await chmod(path,0o600);
+    await symlink(path,join(dir,'link'));await assert.rejects(readPrivatePhone(join(dir,'link')));
+    await writeFile(path,'x'.repeat(33));await assert.rejects(readPrivatePhone(path));
+  }finally{await rm(dir,{recursive:true,force:true});}
+});

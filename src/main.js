@@ -23,9 +23,11 @@ export async function main({ env = process.env, ownerApproved = false, onConnect
     if (!hasLinkedIdentity(state.creds)) throw new Error('No linked session. Linking is a separate supervised setup step; no QR or pairing code is emitted.');
     // This utility store is suitable for a small prototype, not multi-instance production.
     const downloader = createDownloader(config, createTransport({ timeout: config.timeout }));
+    const control=storage.readControl ? await storage.readControl() : {paused:false};
     const handler = createHandler(config, {
+      initialPaused:control.paused,persistPaused:storage.writePaused,controlPersistence:storage.writePaused?'postgres':'runtime',
       downloader, send: async (jid, text) => { if (!shuttingDown) { await storage.guard(); storage.assertActive(); if (shuttingDown) return; await socket.sendMessage(jid, { text }); } },
-      sendMedia: async (jid, media, caption) => { if (!shuttingDown) { await storage.guard(); storage.assertActive(); if (shuttingDown) return; await socket.sendMessage(jid, { [media.type]: { url: media.path }, mimetype: media.mimetype, caption }); } },
+      sendMedia: async (jid, media, caption) => { if (!shuttingDown) { await storage.guard(); storage.assertActive(); if (shuttingDown || handler.snapshot().paused) return; await socket.sendMessage(jid, { [media.type]: { url: media.path }, mimetype: media.mimetype, caption }); } },
       log: event => console.warn(event)
     });
     const startedAt = Math.floor(Date.now() / 1000);
@@ -68,7 +70,7 @@ export async function main({ env = process.env, ownerApproved = false, onConnect
     }
     process.once('SIGINT', signalStop);
     process.once('SIGTERM', signalStop);
-    return { stop: shutdown };
+    return { stop: shutdown, snapshot:handler.snapshot };
   } catch (error) { await storage.close(); throw error; }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

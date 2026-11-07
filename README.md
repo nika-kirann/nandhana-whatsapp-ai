@@ -65,8 +65,8 @@ promise of a reliable free always-on WhatsApp bot.
    verified WhatsApp account. No arbitrary recipient or message input is accepted.
    Save the ID in Koyeb as `SESSION_ID`, keeping the same database and encryption key.
    An ID is only a selector, not a login token or replacement for either secret.
-7. **Pairing/restarts never activate the downloader.** Configure `ALLOWED_CHATS`, then
-   press **Start downloader** in `/owner` after every deployment/restart. Allowlisted
+7. **Pairing/restarts never activate the downloader.** Configure public access + owner number or restricted `ALLOWED_CHATS`, then
+   press **Start downloader** in `/owner` after every deployment/restart. Eligible
    senders must still `/start` to consent. **Stop downloader** releases its socket
    before another pairing/notice action. Do not run another bot/CLI process alongside it.
 
@@ -145,7 +145,7 @@ is needed. Existing file sessions are never imported or deleted automatically.
    must have schema/table setup permissions. `npm run db:migrate` remains optional and
    uses the same URL. Database/schema failure refuses startup rather than falling back.
 5. Pair at `/owner`; optionally confirm the self-notification, save `SESSION_ID`, then
-   configure `ALLOWED_CHATS` and explicitly press **Start downloader**. One replica only.
+   configure public access + owner number or restricted `ALLOWED_CHATS` and explicitly press **Start downloader**. One replica only.
    Existing sessions reconnect only on an owner action, never automatically on restart.
 
 Generate the encryption key privately on your own computer without printing it:
@@ -224,6 +224,68 @@ Official references: [Neon connections](https://neon.com/docs/connect/connect-fr
 [node-postgres TLS](https://node-postgres.com/features/ssl),
 [PGlite socket testing limits](https://pglite.dev/docs/pglite-socket).
 
+## Public downloads and number-owner controls
+
+The default remains restricted and idle. To deliberately serve everyone in **one-to-one**
+chats, set `PUBLIC_ACCESS=true` and privately set `OWNER_NUMBER=<owner international digits>`
+(no `+`, spaces or punctuation; 8–15 digits). Never put the real number in Git or public
+screenshots. **`ALLOWED_CHATS` can be removed or left empty in public mode.** With
+`PUBLIC_ACCESS=false` it remains required for downloader activation. Keep the database,
+encryption, session ID, HTTPS and web-owner settings unchanged, redeploy the feature
+branch, then explicitly press **Start downloader** in `/owner` after each restart.
+Public mode does not expose pairing, credentials or any web administration route.
+
+Every public sender still needs `/start` consent before a Pin is downloaded; `/stop`
+revokes it, including when rate-limited. Existing limits remain: six accepted requests
+per sender/minute by default, 100 active consent records, 30-minute idle expiry, two
+concurrent downloads, 10 queued messages/chat and 100 globally. Excess traffic can be
+silently dropped. Public does not mean unlimited service; Koyeb/database free quotas
+and sleeping still apply. Groups, broadcasts/status/newsletters and own messages are
+always ignored.
+
+Only the configured owner gets these narrowly scoped WhatsApp controls:
+
+- `/owner help`: list controls.
+- `/bot status`: running/paused, public/restricted and persistence type.
+- `/bot pause`: pause downloads while owner command handling remains available.
+- `/bot resume`: resume under the configured access policy (does not turn restricted
+  configuration public or bypass sender consent).
+
+Controls authenticate the **canonical direct PN sender JID decoded by Baileys**, not a
+number typed in a message, profile/business name, quoted participant, `senderPn`,
+`remoteJidAlt`, or a guessed numeric LID. The pinned Baileys 6.7.24 API exposes no public
+verified LID-to-PN resolver; **LID-form senders cannot administer this build**, even if
+an alternate field claims the owner's number. Public LID users can still download.
+If WhatsApp presents the owner only as a LID, use authenticated web Start/Stop controls;
+no insecure mapping fallback or library upgrade is attempted. If the owner is the
+linked bot account itself, self-message controls are deliberately ignored; use the web
+screen. Transport sender identities are trusted only from the library's real-time
+`messages.upsert` adapter, never from an HTTP client supplying message objects.
+
+Owner controls bypass download consent and ordinary chat-capacity admission, but have
+an independent six-command/minute, ten-pending-command bound. They grant **no** shell,
+eval, plugin execution, contact/inbox access, arbitrary messaging, group powers, account
+control, or bulk-send capability. Web owner authentication/CSRF remains authoritative
+for web Start/Stop; the phone-number owner does not replace the web password.
+
+Pause/resume is stored encrypted under the selected Postgres session, with existing
+leases/fencing; it survives restarts. File mode is runtime-only. Persistence failure
+pauses fail-closed. Pause suppresses unsent attachment callbacks and future downloads;
+already started network requests may finish and already-sent messages cannot be recalled.
+The protected `/owner/status` diagnostics expose public/restricted configuration,
+selected-session presence, downloader state and running pause/persistence/error flags,
+never the owner phone or credential values. Public `/healthz` remains only `ok`.
+
+### If the bot does not respond
+
+Check `/owner` after a fresh sign-in: selected/saved session, **Start downloader** after
+restart, running rather than starting/stopped, and public/restricted mode. In restricted
+mode an exact PN/LID allowlist mismatch can silently exclude a sender; public mode removes
+that gate but never guesses owner mappings. Send `/start` again after restart or idle
+expiry, check owner pause state, direct-chat/self-message restrictions and per-user/global
+caps. Sleeping on Koyeb Free, disconnects, unsupported Pins or guarded DNS/CDN failures
+can also prevent delivery. No live non-response cause or fix was verified in this change.
+
 ## What it supports
 
 After `/start`, send exactly one HTTPS public Pin URL:
@@ -288,11 +350,12 @@ Package installation contacts registry/Git hosts; tests/syntax checks are offlin
 2. Complete the **supervised QR or phone-code pairing workflow** described below. The main bot
    still refuses unregistered-session startup. Keep registered credentials in ignored `./auth` with owner-only permissions;
    custom `AUTH_DIR` must be outside this project. Never share session files or OTPs.
-3. Set local `.env`: `ALLOWED_CHATS` to exact direct-chat JIDs (`digits@s.whatsapp.net`
-   or `digits@lid`). Empty permits nobody; activation requires at least one. No contacts
-   are discovered and number/LID forms are not aliased automatically.
+3. Choose explicit public access + owner number as above, or restricted `ALLOWED_CHATS`
+   with exact direct-chat JIDs (`digits@s.whatsapp.net` or `digits@lid`). Restricted
+   activation requires at least one entry. No contacts are discovered and number/LID
+   forms are not aliased automatically.
 4. Start the web service and explicitly press **Start downloader** in `/owner`.
-5. An allowlisted sender must `/start` to opt in, then send a permitted public Pin URL.
+5. An eligible sender must `/start` to opt in, then send a permitted public Pin URL.
 
 The WhatsApp adapter uses pinned **Baileys 6.7.24 (legacy), an unofficial linked-device
 WhatsApp Web library**, not Meta Cloud API. Protocol breakage, WhatsApp terms and account

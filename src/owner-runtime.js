@@ -11,7 +11,7 @@ export function createOwnerRuntime({env=process.env,runPair=liveWebPairing,start
     return {...handle,done:handle.done.then(outcome=>{if(outcome==='paired'){selected=candidate;verified=candidate;}return outcome;})};
   }});
   return {
-    snapshot(){return {...pairing.snapshot(),pairingAllowed:available(),sessionId:verified || undefined,hasSelectedSession:!!selected,downloader,notice,busy,activationError};},
+    snapshot(){return {...pairing.snapshot(),pairingAllowed:available(),sessionId:verified || undefined,hasSelectedSession:!!selected,downloader,notice,busy,activationError,publicAccess:env.PUBLIC_ACCESS==='true',ownerConfigured:!!env.OWNER_NUMBER,controls:bot?.snapshot?.()};},
     remainingMs:()=>pairing.remainingMs(),qr:()=>pairing.qr(),code:()=>pairing.code(),
     start(mode,phone){if(!available())return false;return pairing.start(mode,phone);},stop:()=>pairing.stop(),
     async activate(){

@@ -121,6 +121,13 @@ export async function openPostgresAuth({ pool, sessionId, key, codec, initCreds,
         }
       } },
       saveCreds() { const envelope=cipher.encrypt(creds,'creds','default'); return serial(client => put(client,'creds','default',envelope)); },
+      async readControl() { return serial(async client=>{
+        const result=await client.query("SELECT envelope FROM nandhana_auth_records WHERE session_id=$1 AND kind='meta' AND key_id='download-control'",[sessionId]);
+        if(!result.rowCount)return {paused:false};
+        const value=cipher.decrypt(result.rows[0].envelope,'meta','download-control');
+        if(typeof value?.paused!=='boolean')throw safeError();return {paused:value.paused};
+      }); },
+      async writePaused(paused) { if(typeof paused!=='boolean')throw safeError();return serial(client=>put(client,'meta','download-control',cipher.encrypt({paused},'meta','download-control'))); },
       async claimNotice() { return serial(async client => {
         const prior=await client.query("SELECT envelope FROM nandhana_auth_records WHERE session_id=$1 AND kind='meta' AND key_id='self-notice'",[sessionId]);
         if (prior.rowCount) return { claimed:false, status:cipher.decrypt(prior.rows[0].envelope,'meta','self-notice').status };

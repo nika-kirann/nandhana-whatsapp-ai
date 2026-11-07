@@ -35,6 +35,12 @@ test('embedded PostgreSQL SQL/wire-protocol integration (not Neon/native concurr
   const b=await open('notice-marker');assert.deepEqual(await b.claimNotice(),{claimed:false,status:'sent'});await b.close();
   const rows=await admin.query("SELECT envelope FROM nandhana_auth_records WHERE session_id=$1 AND kind='meta'",['notice-marker']);assert.equal(rows.rowCount,1);assert.ok(!JSON.stringify(rows.rows).includes('sent'));
  });
+ await t.test('public pause state is encrypted, session-isolated and survives process/store restart',async()=>{
+  const first=await open('public-control');assert.deepEqual(await first.readControl(),{paused:false});await first.writePaused(true);await first.close();
+  const second=await open('public-control');assert.deepEqual(await second.readControl(),{paused:true});await second.writePaused(false);await second.close();
+  const other=await open('isolated-control');assert.deepEqual(await other.readControl(),{paused:false});await other.close();
+  const row=await admin.query("SELECT envelope FROM nandhana_auth_records WHERE session_id=$1 AND kind='meta' AND key_id='download-control'",['public-control']);assert.equal(row.rowCount,1);assert.ok(!JSON.stringify(row.rows).includes('paused'));
+ });
  await t.test('process A writes synthetic creds/Signal keys; process B retrieves exact bytes/proto',async()=>{
   const a=await worker('write','process-persistence').done;assert.equal(a.code,0);assert.equal(a.out,'write_pass\n');
   const b=await worker('read','process-persistence').done;assert.equal(b.code,0);assert.equal(b.out,'read_pass\n');

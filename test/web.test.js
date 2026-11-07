@@ -253,3 +253,8 @@ test('owner activation, stop and notice actions require authentication, exact or
  }
  assert.equal(activated,1);assert.equal(notified,1);assert.equal(stopped,1);
 });
+test('mode and paused diagnostics stay authenticated; public health carries no owner controls',async t=>{
+ const h=harness();const manager={...h.manager,snapshot:()=>({...h.manager.snapshot(),publicAccess:true,ownerConfigured:true,hasSelectedSession:true,downloader:'running',controls:{paused:true,controlPersistence:'postgres'}})};
+ const api=await setup(t,manager);assert.equal((await api.request('/owner/status',{auth:false})).status,401);assert.equal((await api.request('/healthz',{auth:false})).body,'ok');
+ const response=await api.request('/owner/status');assert.equal(JSON.parse(response.body).controls.paused,true);const page=await api.request('/owner');assert.match(page.body,/Configured access: public/);assert.match(page.body,/Downloads: paused/);
+});

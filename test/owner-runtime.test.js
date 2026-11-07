@@ -55,3 +55,8 @@ test('shutdown waits for an in-progress owner activation and stops its socket in
  const r=createOwnerRuntime({env:{SESSION_ID:'fixture'},startBot:()=>new Promise(resolve=>{release=()=>resolve({stop:async()=>{await tick();stopped=true;}});})});
  const activating=r.activate();const closing=r.close();release();await activating;await closing;assert.equal(stopped,true);assert.equal(r.snapshot().pairingAllowed,false);
 });
+test('protected runtime diagnostics expose mode/pause/session selection but never owner contact or secrets',async()=>{
+ const env={SESSION_ID:'fixture-selected',PUBLIC_ACCESS:'true',OWNER_NUMBER:'12345678',WEB_OWNER_PASSWORD:'PRIVATE-FIXTURE-NEVER-EXPOSE'};
+ const r=createOwnerRuntime({env,startBot:async o=>{o.onConnection();return {snapshot:()=>({publicAccess:true,paused:true,controlPersistence:'postgres',controlError:false}),stop:async()=>o.onStopped()};}});
+ await r.activate();const s=r.snapshot();assert.equal(s.publicAccess,true);assert.equal(s.ownerConfigured,true);assert.equal(s.hasSelectedSession,true);assert.equal(s.downloader,'running');assert.equal(s.controls.paused,true);assert.ok(!JSON.stringify(s).includes(env.OWNER_NUMBER));assert.ok(!JSON.stringify(s).includes(env.WEB_OWNER_PASSWORD));await r.close();
+});

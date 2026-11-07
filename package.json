@@ -1,0 +1,18 @@
+{
+  "name": "nandhana-whatsapp-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node --env-file=.env src/main.js",
+    "test": "node --test",
+    "check": "node scripts/check.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "pino": "9.6.0"
+  }
+}
